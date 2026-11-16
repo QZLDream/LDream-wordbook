@@ -97,7 +97,17 @@ export function openLayer(kind, build, opts = {}) {
   layers.push(close);
   layer.append(scrim, box);
   startWhenPainted(scrim, box);
-  setTimeout(() => (box.querySelector("[autofocus]") || box).focus?.({ preventScroll: true }), 60);
+  setTimeout(() => {
+    const el = box.querySelector("[autofocus]") || box;
+    // 按钮是程序替用户聚焦的：不画键盘焦点框（启动时还没点过鼠标，浏览器会把它当成键盘操作画一圈蓝框）。
+    // 用户之后按了键（比如 Tab）再显示，方便键盘操作
+    if (el.tagName === "BUTTON") {
+      el.dataset.quietFocus = "";
+      const loud = (e) => { if (e.key !== "Enter" && e.key !== " ") { delete el.dataset.quietFocus; removeEventListener("keydown", loud, true); } };
+      addEventListener("keydown", loud, true);
+    }
+    el.focus?.({ preventScroll: true });
+  }, 60);
   return { close, box };
 }
 // 确认框：返回 Promise<boolean>

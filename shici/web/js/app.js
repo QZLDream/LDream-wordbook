@@ -102,36 +102,50 @@ function moveInk(name) {
   ink.style.transform = `translateX(${on.offsetLeft + 18}px)`;
 }
 
-let current = null, seq = 0;
+// 换页：旧页淡出 240ms 后再放新页。
+// 连续快速点导航时要保证同一时间只有一页在屏幕上：
+//   - 还在淡出的旧页：新页等它淡完再进来（以前新页会直接叠上去，两页重影，看起来像闪屏）；
+//   - 还没加载完的上一页：直接撤掉，不让它和新页叠在一起。
+let current = null, seq = 0, pending = null, leaveDone = Promise.resolve();
 async function route() {
   const [, name = "home", query = ""] = location.hash.match(/^#\/(\w+)\??(.*)$/) || [];
   if (!routes[name]) return (location.hash = "#/home");
   const my = ++seq;
   moveInk(name);
   const view = $("#view");
+  if (pending) { pending.remove(); pending = null; }
   const old = current;
   current = null;
   app.keyHandler = null;
   if (old) {
     old.cleanup?.();
     old.el.classList.add("leaving");
-    await new Promise((r) => setTimeout(r, ms(240)));
-    old.el.remove();
+    leaveDone = new Promise((r) => setTimeout(() => { old.el.remove(); r(); }, ms(240)));
   }
+  await leaveDone;
   if (my !== seq) return;
   const el = h("section", { class: "page" });
+  pending = el;
   view.append(el);
   try {
     const mod = await routes[name]();
     const cleanup = await mod.mount(el, Object.fromEntries(new URLSearchParams(query)));
     if (my !== seq) { cleanup?.(); el.remove(); return; }
+    pending = null;
     current = { el, cleanup };
   } catch (e) {
+    if (my !== seq) { el.remove(); return; }
     console.error(e);
+    pending = null;
     el.append(h("div", { class: "page-pad" }, h("p", { class: "label", text: "ERROR" }), h("p", { class: "h3", style: { "margin-top": "12px" }, text: e.message })));
     current = { el };
   }
 }
+
+// 链接和图片不能被拖出窗口（拖出去会变成一个网址小方块，没有意义）
+document.addEventListener("dragstart", (e) => { if (e.target.closest?.("a, img, svg")) e.preventDefault(); });
+// 文件或链接拖到导入框以外的地方松手时，窗口会直接打开那个文件、整个程序界面被换掉：拦下来
+for (const t of ["dragover", "drop"]) document.addEventListener(t, (e) => { if (!e.target.closest?.(".drop")) e.preventDefault(); });
 
 document.addEventListener("keydown", (e) => {
   if (layerOpen()) return;

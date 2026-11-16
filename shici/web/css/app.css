@@ -639,3 +639,7 @@ html.look-swap *:not(.toggle), html.look-swap *:not(.toggle)::before, html.look-
 .about-links { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 6px; }
 .update-notes { margin-top: 14px; max-height: 240px; padding: 14px 16px; border-radius: 12px; background: color-mix(in srgb, var(--ink) 4%, transparent);
   font: 13px/1.7 var(--sans); white-space: pre-wrap; color: var(--ink-2, var(--ink)); }
+/* 程序自动聚焦的按钮：不画焦点框，按了 Tab 等键之后才显示（见 ui.js openLayer） */
+[data-quiet-focus]:focus-visible { outline: none; }
+/* 链接、图片不能拖出去 */
+a, img, svg { -webkit-user-drag: none; }
