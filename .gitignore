@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+*.spec
+demo-data/
+.DS_Store
+Thumbs.db
+tools/launcher/*.pdb
+tools/launcher/zig-cache/
+tools/launcher/.zig-cache/
