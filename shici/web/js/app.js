@@ -28,7 +28,11 @@ export function applySettings(s) {
     const btn = $("#themeBtn");
     if (btn) btn.innerHTML = dark ? icons.sun : icons.moon;
   };
-  if (root.dataset.theme !== theme || root.dataset.palette !== palette) swapLook(look); else look();
+  // 和「最近一次要求的外观」比，而不是和页面上的 data-theme 比：
+  // 换肤动画要等下一帧截好旧画面才真正改 data-theme，这期间后台的保存结果先回来的话，
+  // 读 data-theme 会以为还没换、再触发一次换肤，把正在播的淡入淡出跳过（看起来就是“有时候没动画、直接闪过去”）
+  const key = theme + "/" + palette;
+  if (key !== wantLook) { wantLook = key; swapLook(look); } else if (!swapping) look();
   applyFonts(s, app.info.user_fonts || []);
   sfx.configure(s);
   app.lookReady = true;
@@ -37,7 +41,7 @@ export function applySettings(s) {
 // 换主题或明暗：整屏一起淡入淡出。
 // 各元素自己的颜色过渡时长不同，背景渐变又没法过渡，直接切会出现导航栏和页面一先一后变色。
 // 这里先关掉所有过渡，让新外观一步到位，再由视图过渡把新旧两张画面整体交叉淡化。
-let swapping = null;
+let swapping = null, wantLook = null;
 function swapLook(change) {
   const root = document.documentElement;
   if (!app.lookReady || !document.startViewTransition || root.dataset.motion === "reduced") { change(); return; }
@@ -66,12 +70,18 @@ function swapLook(change) {
 }
 
 // 导航栏右上角的暗色开关：在亮色和暗色之间切换，并记住选择
+let themeSeq = 0;
 async function toggleTheme() {
-  const dark = document.documentElement.dataset.theme === "dark";
-  applySettings({ ...app.settings, theme: dark ? "light" : "dark" });
+  const theme = isDarkMode() ? "light" : "dark";  // 以设置为准：动画进行中 data-theme 可能还是旧的
+  const my = ++themeSeq;
+  applySettings({ ...app.settings, theme });
   document.dispatchEvent(new CustomEvent("shici-settings")); // 设置页的开关立刻跟着动，不等保存完成
-  try { applySettings((await api("settings_set", { theme: dark ? "light" : "dark" })).settings); } catch (e) { fail(e); }
-  document.dispatchEvent(new CustomEvent("shici-settings"));
+  try {
+    const r = await api("settings_set", { theme });
+    // 连点时，前一次的保存结果可能在后一次点击之后才回来：只认最后一次，不然会先跳回去再跳回来（闪屏）
+    if (my === themeSeq) applySettings(r.settings);
+  } catch (e) { fail(e); }
+  if (my === themeSeq) document.dispatchEvent(new CustomEvent("shici-settings"));
 }
 
 export async function refreshNav(counts) {

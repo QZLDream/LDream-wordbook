@@ -141,7 +141,7 @@ export async function mount(root) {
       row("显示例句", "复习时在右侧显示例句。", flag("show_examples", "显示例句"))),
     group(3.5, "FONT · 字体", fontsBox),
     group(4, "SOUND · 音效",
-      row("按键音效", "显示答案、评分、点按钮时给一点声音反馈。默认关闭。", toggle(() => s.sfx, async (v) => { await set({ sfx: v }, true); if (v) sfx.play("good", { force: true }); }, "按键音效")),
+      row("按键音效", "显示答案、评分、点按钮时给一点声音反馈。", toggle(() => s.sfx, async (v) => { await set({ sfx: v }, true); if (v) sfx.play("good", { force: true }); }, "按键音效")),
       sfxRows),
     group(5, "DATA · 数据",
       row("进度文件", "把学习进度存成一个文件（.xmdb）。换设备时把文件拷过去（U 盘、网盘、聊天软件都行），在新设备上导入就能接着背。两边都有进度时会合并，不会丢。",

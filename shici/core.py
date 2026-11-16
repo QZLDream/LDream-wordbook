@@ -85,7 +85,7 @@ DEFAULTS = {
     "motion": "full",       # full / reduced
     "font_title": "",       # 标题和单词的字体："" 跟随配色 / builtin:serif / builtin:sans / system:<字体名> / user:<id>
     "font_body": "",        # 正文字体，取值同上
-    "sfx": False,           # 按键音效
+    "sfx": True,            # 按键音效（默认打开，木质）
     "sfx_set": "wood",      # wood 木质 / felt 毛毡 / stone 石子 / keys 键盘 / glass 玻璃
     "sfx_volume": 60,
     "day_start": 4,         # 一天从凌晨几点开始算
