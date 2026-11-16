@@ -1,6 +1,0 @@
--r requirements.txt
-pytest
-# 以下只在重新构建内置数据或字体时需要
-fonttools
-brotli
-opencc-python-reimplemented
