@@ -146,5 +146,7 @@ async function boot() {
   document.fonts?.ready.then(() => moveInk((location.hash.match(/^#\/(\w+)/) || [])[1] || "home"));
   route();
   refreshNav();
+  // 自动检查更新：启动几秒后在后台问一次，有新版本才提示
+  if (app.settings?.update_check) setTimeout(() => import("./update.js").then((m) => m.checkUpdate(false)), 4000);
 }
 boot();

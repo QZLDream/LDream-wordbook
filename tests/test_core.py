@@ -39,7 +39,7 @@ def test_dictionary_lookup(core):
     assert core.dict.lookup("en", "zzzzqqq") is None
     assert core.dict.examples("en", "abandon")
     ja = core.dict.lookup("ja", "食べる")
-    assert ja["phonetic"] == "たべる" and "eat" in ja["translation"]
+    assert ja["phonetic"] == "たべる" and "吃" in ja["translation"]
     ids = {b["id"] for b in core.dict.books()}
     assert {"cet4", "cet6", "ky", "toefl", "ielts", "gre", "jlpt-n5", "jlpt-n1"} <= ids
 
@@ -558,3 +558,60 @@ def test_sentence_speech_uses_cache_and_system_voice(core):
     assert r.get("missing") == "ja" and r.get("kind") == "sentence"
     core.speaker = None
     assert core.call("speak", {"text": sent, "lang": "en", "kind": "sentence"})["audio"]  # 浏览器模式：把音频传回界面
+
+
+def test_gloss_language_and_domain_switch(core):
+    # 默认：英语词显示中文，专业领域释义（[计] 等）不显示
+    e = core.dict.lookup("en", "propriety")
+    assert "礼貌" in e["translation"] and "[计]" not in e["translation"]
+    core.api_settings_set({"show_domain": True})
+    assert "[计]" in core.dict.lookup("en", "propriety")["translation"]
+    # 日英
+    core.api_settings_set({"gloss_en": "ja"})
+    assert any("぀" <= ch <= "ヿ" for ch in core.dict.lookup("en", "season")["translation"])
+    # 日语词：默认中日，可切成英日
+    zh = core.dict.lookup("ja", "勉強")["translation"]
+    assert "学习" in zh
+    core.api_settings_set({"gloss_ja": "en"})
+    assert "study" in core.dict.lookup("ja", "勉強")["translation"]
+    with pytest.raises(ApiError):
+        core.api_settings_set({"gloss_ja": "fr"})
+
+
+def test_example_translations(core):
+    # 英语例句都有中文（人工或机翻），机翻的带标记，人工译文排在前面
+    for w in ("barge", "carafe", "abandon", "season"):
+        exs = core.dict.examples("en", w)
+        assert exs and all(x["zh"] for x in exs), w
+        assert [x["mt"] for x in exs] == sorted(x["mt"] for x in exs)
+    # 日语例句默认中文译文；英日模式给英文
+    ja = core.dict.examples("ja", "勉強")
+    assert ja and all(any("一" <= ch <= "鿿" for ch in x["zh"]) for x in ja)
+    core.api_settings_set({"gloss_ja": "en"})
+    assert any(x["zh"].isascii() for x in core.dict.examples("ja", "勉強"))
+
+
+def test_update_check_and_links(core, monkeypatch):
+    import json as _json
+    import urllib.request
+
+    class Resp:
+        def __init__(self, body): self.body = body
+        def read(self): return self.body
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: Resp(_json.dumps({"tag_name": "v99.0.0", "html_url": "https://github.com/x"}).encode()))
+    r = core.api_update_check({})
+    assert r["ok"] and r["newer"] and r["latest"] == "99.0.0"
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: Resp(_json.dumps({"tag_name": "v0.0.1"}).encode()))
+    assert core.api_update_check({})["newer"] is False
+
+    def boom(req, timeout): raise OSError("offline")
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert core.api_update_check({})["ok"] is False
+    opened = []
+    core.url_opener = opened.append
+    assert core.api_open_url({"url": core.api_bootstrap({})["links"]["github"]})["opened"] and opened
+    with pytest.raises(ApiError):
+        core.api_open_url({"url": "file:///etc/passwd"})

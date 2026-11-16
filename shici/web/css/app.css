@@ -630,3 +630,12 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 /* 换主题 / 明暗时整屏交叉淡化（见 app.js 的 swapLook） */
 html.look-swap *:not(.toggle), html.look-swap *:not(.toggle)::before, html.look-swap *:not(.toggle)::after { transition: none !important; }
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .5s; animation-timing-function: cubic-bezier(.4, 0, .2, 1); }
+
+/* 机翻译文的小标记 */
+.mt-tag { display: inline-block; margin-left: 8px; padding: 1px 6px 2px; border-radius: 6px; font: 600 11px/1.4 var(--sans); letter-spacing: .04em;
+  color: var(--faint); background: color-mix(in srgb, var(--ink) 6%, transparent); vertical-align: 1px; white-space: nowrap; }
+.auto-def { margin-top: 10px; font-size: 12px; color: var(--faint); }
+/* 关于：外部链接 */
+.about-links { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 6px; }
+.update-notes { margin-top: 14px; max-height: 240px; padding: 14px 16px; border-radius: 12px; background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font: 13px/1.7 var(--sans); white-space: pre-wrap; color: var(--ink-2, var(--ink)); }

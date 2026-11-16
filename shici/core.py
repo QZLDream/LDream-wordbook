@@ -10,6 +10,7 @@ import csv
 import json
 import lzma
 import random
+import re
 import sqlite3
 import threading
 import time
@@ -88,6 +89,18 @@ DEFAULTS = {
     "sfx_set": "wood",      # wood 木质 / felt 毛毡 / stone 石子 / keys 键盘 / glass 玻璃
     "sfx_volume": 60,
     "day_start": 4,         # 一天从凌晨几点开始算
+    "gloss_en": "zh",       # 英语词的释义：zh 英中 / ja 日英
+    "gloss_ja": "zh",       # 日语词的释义：zh 中日 / en 英日
+    "show_domain": False,   # 显示「[计]」「[医]」这类专业领域释义
+    "update_check": True,   # 启动时联网检查有没有新版本（只访问 GitHub 的发布页接口）
+}
+RELEASES_API = "https://api.github.com/repos/QZLDream/LDream-wordbook/releases/latest"
+LINKS = {
+    "github": "https://github.com/QZLDream/LDream-wordbook",
+    "releases": "https://github.com/QZLDream/LDream-wordbook/releases/latest",
+    "bilibili": "https://space.bilibili.com/397075230",
+    "netdisk": "https://pan.baidu.com/s/1FHgXzc63Vxhqn1hGDLpuLQ?pwd=2922",
+    "netdisk_code": "2922",
 }
 MATURE_DAYS = 21  # 稳定度超过 21 天算“已掌握”
 KEY_PREFIX = "XMCS1."  # 进度密钥的开头：小梦词书，第 1 版格式
@@ -114,6 +127,7 @@ class Core:
             if r["k"] in DEFAULTS:
                 self.settings[r["k"]] = json.loads(r["v"])
         self.srs = Srs(self.settings["retention"])
+        self._apply_gloss()
         self._undo: list[int] = []
         self.voice = VoiceBank(self.dir / "audio-cache")
         self.fonts = FontStore(self.dir)
@@ -122,6 +136,7 @@ class Core:
         self.clipboard = None  # 桌面外壳注入：clipboard(text) 写入系统剪贴板
         self.voice_langs: set[str] | None = None  # 系统语音支持的语言；None = 还不知道
         self.opener = None   # 桌面外壳注入：opener(path) 在文件管理器里打开
+        self.url_opener = None  # 桌面外壳注入：url_opener(url) 用系统浏览器打开网页
 
     # ------------------------------------------------------------ 调度入口
     def call(self, name: str, params: dict | None = None):
@@ -158,6 +173,7 @@ class Core:
             "id": it["id"], "lang": it["lang"], "term": it["term"],
             "reading": it["reading"] if it["reading"] is not None else (entry or {}).get("phonetic", ""),
             "definition": it["definition"] if it["definition"] is not None else (entry or {}).get("translation", ""),
+            "auto_def": it["definition"] is None and bool((entry or {}).get("auto")),
             "note": it["note"], "suspended": bool(it["suspended"]),
         }
         if full:
@@ -657,7 +673,7 @@ class Core:
 
     # ------------------------------------------------------------ 设置与数据
     def api_bootstrap(self, p: dict) -> dict:
-        return {"app": APP_NAME, "version": __version__, "settings": self.settings, "data_dir": str(self.dir),
+        return {"app": APP_NAME, "version": __version__, "settings": self.settings, "data_dir": str(self.dir), "links": LINKS,
                 "desktop": self.speaker is not None, "voice_packs": self.voice.pack_langs(), "user_fonts": self.fonts.list()}
 
     # ------------------------------------------------------------ 字体
@@ -684,7 +700,7 @@ class Core:
         ranges["sfx_volume"] = (0, 100)
         choices = {"order": ("freq", "random", "alpha"), "voice": ("builtin", "online", "system"), "accent": ("us", "uk"),
                    "theme": ("light", "dark", "auto"), "motion": ("full", "reduced"), "palette": ("vermilion", "silver"),
-                   "sfx_set": ("wood", "felt", "stone", "keys", "glass")}
+                   "sfx_set": ("wood", "felt", "stone", "keys", "glass"), "gloss_en": ("zh", "ja"), "gloss_ja": ("zh", "en")}
         for k, v in p.items():
             if k not in DEFAULTS:
                 continue
@@ -708,7 +724,42 @@ class Core:
         self.db.commit()
         if "retention" in p:
             self.srs.set_retention(self.settings["retention"])
+        self._apply_gloss()
         return {"settings": self.settings}
+
+    def _apply_gloss(self) -> None:
+        self.dict.gloss = {"en": self.settings["gloss_en"], "ja": self.settings["gloss_ja"]}
+        self.dict.show_domain = bool(self.settings["show_domain"])
+
+    def api_open_url(self, p: dict) -> dict:
+        url = str(p.get("url") or "")
+        if not re.match(r"^https://[\w.-]+(/|$)", url):
+            raise ApiError("链接不对")
+        if self.url_opener:
+            self.url_opener(url)
+            return {"opened": True}
+        return {"opened": False}
+
+    # ------------------------------------------------------------ 检查更新
+    @staticmethod
+    def _ver(v: str) -> tuple:
+        return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3])
+
+    def api_update_check(self, p: dict) -> dict:
+        """问 GitHub 最新发布的版本号。联网失败不报错，只返回 ok=False。"""
+        import urllib.request
+        req = urllib.request.Request(RELEASES_API, headers={"Accept": "application/vnd.github+json",
+                                                            "User-Agent": f"LDream-wordbook/{__version__}"})
+        try:
+            with urllib.request.urlopen(req, timeout=8) as r:
+                d = json.loads(r.read().decode("utf-8"))
+        except Exception as e:  # 没网、被墙、GitHub 限流
+            return {"ok": False, "current": __version__, "error": str(e)[:120], "links": LINKS}
+        latest = (d.get("tag_name") or "").lstrip("vV")
+        return {"ok": True, "current": __version__, "latest": latest,
+                "newer": self._ver(latest) > self._ver(__version__),
+                "url": d.get("html_url") or LINKS["releases"], "name": d.get("name") or "",
+                "notes": (d.get("body") or "")[:1500], "links": LINKS}
 
     def api_speak(self, p: dict) -> dict:
         """朗读一个词。按设置的来源依次尝试，前一个没有就用下一个，保证尽量能出声。

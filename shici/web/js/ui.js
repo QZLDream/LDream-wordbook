@@ -187,7 +187,9 @@ export function exampleEl(ex, term, lang = "en") {
     setTimeout(() => say.classList.remove("playing"), ms(1400));
   });
   p.append(" ", say);
-  return h("div", { class: "ex" }, p, ex.zh ? h("p", { text: ex.zh }) : null);
+  // 机器翻译的译文后面标一个小小的「机翻」
+  const tr = ex.zh ? h("p", { lang: /[\u3040-\u30ff]/.test(ex.zh) ? "ja" : null }, ex.zh, ex.mt ? h("span", { class: "mt-tag", title: "这句译文是机器翻译的，仅供参考", text: "机翻" }) : null) : null;
+  return h("div", { class: "ex" }, p, tr);
 }
 
 export function fmtDue(ts, now) {

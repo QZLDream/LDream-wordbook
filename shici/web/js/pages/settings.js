@@ -4,6 +4,7 @@ import { h, fill, icons, toast, fail, ask, openLayer } from "../ui.js";
 import { app, applySettings, refreshNav, isDarkMode } from "../app.js";
 import * as sfx from "../sfx.js";
 import { family } from "../fonts.js";
+import { openLink, openNetdisk, checkUpdate } from "../update.js";
 
 export async function mount(root) {
   const s = { ...app.settings };
@@ -126,6 +127,12 @@ export async function mount(root) {
       row("联网补充", "内置语音包里没有的词（比如自己加的生词）联网取一次发音并存下来，之后离线也能读。", flag("online_fallback", "联网补充")),
       row("在线发音口音", null, seg("accent", [["us", "美音"], ["uk", "英音"]])),
       row("试听", null, [act("英语 · vocabulary", () => speak("vocabulary", "en")), act("日语 · 勉強", () => speak("勉強", "ja"))])),
+    group(2.5, "DICTIONARY · 词典",
+      row("英语单词的释义", "英中：中文释义（ECDICT 英汉词典）。日英：日语释义（EJDict 英和辞典），例句也优先显示日语译文。没有日语释义的词仍显示中文。",
+        seg("gloss_en", [["zh", "英中"], ["ja", "日英"]])),
+      row("日语单词的释义", "中日：中文释义（主要来自维基词典，少数是程序自动匹配的，会标出来）。英日：英文释义（JMdict），例句显示英文译文。",
+        seg("gloss_ja", [["zh", "中日"], ["en", "英日"]])),
+      row("专业领域释义", "显示「[计] 专有权」「[医] …」这类计算机、医学、经济等专业用法。默认不显示。", flag("show_domain", "专业领域释义"))),
     group(3, "LOOK · 外观",
       row("暗色模式", "也可以随时点右上角的月亮 / 太阳图标切换。", toggle(isDark, (v) => set({ theme: v ? "dark" : "light" }, true), "暗色模式")),
       row("跟随系统明暗", "打开后，系统切到深色时自动变暗。", toggle(() => s.theme === "auto", (v) => set({ theme: v ? "auto" : (isDark() ? "dark" : "light") }, true), "跟随系统明暗")),
@@ -148,13 +155,21 @@ export async function mount(root) {
       row("清空学习记录", "词库保留，所有学习进度归零。清空前会自动备份一次。", act("清空…", async () => {
         if (!(await ask("清空全部学习记录？", "所有单词都会回到“未学”，统计也会清零。清空前会自动备份，可以从备份文件恢复。", { ok: "清空", danger: true }))) return;
         try { const r = await api("reset_progress", { confirm: "RESET" }); refreshNav(); toast("已清空。备份在 " + r.path, 6000); } catch (e) { fail(e); } }, "danger"))),
+    group(5.5, "UPDATE · 更新",
+      row("自动检查更新", "每次打开程序时联网看一下 GitHub 上有没有新版本。只读取版本号，不上传任何数据。", flag("update_check", "自动检查更新")),
+      row("检查更新", `当前版本 v${app.info.version || ""}。也可以去 GitHub 或百度网盘直接下载最新版。`, act("立即检查", () => checkUpdate(true)))),
     group(6, "ABOUT · 关于",
       h("div", { class: "about-logo", role: "img", "aria-label": "L.Dream" }),
+      h("div", { class: "about-links" },
+        h("button", { class: "btn ghost sm", onclick: () => openLink(app.info.links.github) }, "GitHub 项目主页"),
+        h("button", { class: "btn ghost sm", onclick: () => openLink(app.info.links.bilibili) }, "B 站 · 千醉_LDream"),
+        h("button", { class: "btn ghost sm", onclick: () => openNetdisk() }, `百度网盘（提取码 ${app.info.links?.netdisk_code || "2922"}）`)),
       h("div", { class: "credits", style: { "padding-top": "6px" }, html:
         `<b>${app.info.app || "小梦的词书"}</b> v${app.info.version || ""} · MIT 许可证开源<br>` +
         "记忆算法：<b>FSRS</b>（open-spaced-repetition/py-fsrs，MIT）<br>" +
         "英语词典：<b>ECDICT</b>（MIT）　例句：<b>Tatoeba</b>（CC BY 2.0 FR）、<b>WordNet 3.0</b>（Princeton University）<br>" +
-        "日语词表：<b>JLPT 词表</b>（Jonathan Waller, tanos.co.uk，CC BY）　日语释义：<b>JMdict</b>（EDRDG，CC BY-SA 4.0）<br>" +
+        "日语词表：<b>JLPT 词表</b>（Jonathan Waller, tanos.co.uk，CC BY）　日语释义：<b>JMdict</b>（EDRDG，CC BY-SA 4.0）、<b>维基词典</b>（CC BY-SA 4.0）<br>" +
+        "英日释义：<b>EJDict-hand</b>（公有领域）　部分例句译文为机器翻译：<b>opus-mt-en-zh</b>（Helsinki-NLP，CC BY 4.0）<br>" +
         "内置语音：英语 <b>Piper · LJ Speech</b>（公有领域数据集）　日语 <b>Open JTalk · HTS voice “Mei”</b>（名古屋工业大学，CC BY 3.0）<br>" +
         "字体：Noto Serif SC / Noto Serif JP、Inter、JetBrains Mono（SIL OFL 1.1）" })))));
 

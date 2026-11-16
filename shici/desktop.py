@@ -24,6 +24,7 @@ class Voice(QObject):
 
     request = Signal(str, str, str)   # 文本, 语言(en/ja), 音频文件路径(为空则用系统语音)
     open_path = Signal(str)
+    open_url = Signal(str)
     copy_text = Signal(str)
 
     def __init__(self, core: Core):
@@ -35,6 +36,7 @@ class Voice(QObject):
         self._pending = ("", "en")
         self.request.connect(self._speak)
         self.open_path.connect(lambda p: QDesktopServices.openUrl(QUrl.fromLocalFile(p)))
+        self.open_url.connect(lambda u: QDesktopServices.openUrl(QUrl(u)))
         self.copy_text.connect(lambda t: QGuiApplication.clipboard().setText(t))
 
     def _ensure_tts(self):
@@ -116,6 +118,7 @@ def run(core: Core, server: Server) -> int:
         core.system_fonts = []
     core.speaker = lambda text, lang, path: voice.request.emit(text, lang, path or "")
     core.opener = voice.open_path.emit
+    core.url_opener = voice.open_url.emit
     core.clipboard = voice.copy_text.emit
 
     view = QWebEngineView()

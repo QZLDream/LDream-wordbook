@@ -16,6 +16,11 @@
 | `shici/data/audio_ja.db` | 日语单词发音（合成语音） | 用 [Open JTalk](https://open-jtalk.sp.nitech.ac.jp/)（Modified BSD）和 HTS voice “Mei”（MMDAgent 项目，名古屋工业大学）生成 | 语音模型 CC BY 3.0 |
 | `shici/data/dict_ja.db`（词表） | JLPT N5–N1 词表 | Jonathan Waller, [tanos.co.uk/jlpt](https://www.tanos.co.uk/jlpt/)，经 [Bluskyo/JLPT_Vocabulary](https://github.com/Bluskyo/JLPT_Vocabulary) 整理 | CC BY |
 | `shici/data/dict_ja.db`（释义） | 日语词的英文释义 | [JMdict](https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project)，Electronic Dictionary Research and Development Group | CC BY-SA 4.0 |
+| `shici/data/dict_ja.db`（`translation_zh`，`zh_src` 为 wikt / pivot） | 日语词的中文释义 | [维基词典](https://zh.wiktionary.org/)（中文版日语词条；英文版翻译表），经 [kaikki.org](https://kaikki.org/) / wiktextract 提取 | CC BY-SA 4.0 |
+| `shici/data/dict_ja.db`（`translation_zh`，`zh_src` 为 ecdict） | 程序根据英文释义自动匹配的中文 | 由 JMdict 英文释义对照 ECDICT 生成 | 同上两者 |
+| `shici/data/dict_en.db`（`entries.translation_ja`） | 英语词的日语释义 | [EJDict-hand](https://github.com/kujirahand/EJDict) | 公有领域（Public Domain） |
+| `shici/data/dict_en.db`（`sentences.ja`） | 英语例句的日语译文 | [Tatoeba](https://tatoeba.org) | CC BY 2.0 FR |
+| 两个词典里 `mt = 1` 的例句译文 | 机器翻译的中文译文 | 用 [opus-mt-en-zh](https://huggingface.co/Helsinki-NLP/opus-mt-en-zh)（Helsinki-NLP，CC BY 4.0）翻译 Tatoeba / WordNet 的英文句子 | 跟随原句许可证 |
 
 说明：
 
@@ -25,7 +30,7 @@
 - JLPT 没有官方词表，这里用的是社区整理的版本，和实际考试范围不保证一致。
 - `dict_ja.db` 含 CC BY-SA 4.0 数据：如果你修改并再分发这个数据库，需要以相同许可证发布修改后的数据库。
   这不影响程序代码的 MIT 许可证。
-- 数据怎么生成的见 `tools/build_dict.py`。
+- 数据怎么生成的见 `tools/build_dict.py`；中文 / 日语释义和机翻译文见 `tools/build_bilingual.py`、`tools/wikt_ja_zh.py`、`tools/enwikt_pivot.py`、`tools/mt_sentences.py`。
 
 ### WordNet License
 
