@@ -214,3 +214,17 @@ export function fmtDue(ts, now) {
 export const pct = (v, digits = 0) => (v == null ? "—" : (v * 100).toFixed(digits) + "%");
 export const STATUS = { new: "未学", learning: "学习中", young: "复习中", mature: "已掌握", suspended: "已搁置" };
 export const debounce = (fn, t = 220) => { let id; return (...a) => { clearTimeout(id); id = setTimeout(() => fn(...a), t); }; };
+
+// 网页现在用的是哪张显卡（从 WebGL 读出来，比如 “NVIDIA GeForce RTX 4060 Ti”）
+export function gpuRenderer() {
+  try {
+    const gl = document.createElement("canvas").getContext("webgl");
+    const ext = gl && gl.getExtension("WEBGL_debug_renderer_info");
+    let r = gl ? gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) : "";
+    gl?.getExtension("WEBGL_lose_context")?.loseContext();
+    const m = r.match(/^ANGLE \((.*)\)$/);            // ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Ti (0x00002803) Direct3D11 vs_5_0 ps_5_0, D3D11)
+    if (m) r = m[1].split(", ").length >= 2 ? m[1].split(", ")[1] : m[1];
+    return r.replace(/\s*\(0x[0-9a-f]+\)/i, "").replace(/\s+(Direct3D\d+|OpenGL).*$/i, "").replace(/\/PCIe.*$/i, "").trim() || "未知";
+  } catch { return "未知"; }
+}
+

@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+from pathlib import Path
 
-from PySide6.QtCore import QLocale, QObject, QSettings, QTimer, QUrl, Qt, Signal, Slot
+from PySide6.QtCore import QLocale, QObject, QProcess, QSettings, QTimer, QUrl, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication, QIcon
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -26,6 +28,7 @@ class Voice(QObject):
     open_path = Signal(str)
     open_url = Signal(str)
     copy_text = Signal(str)
+    restart = Signal()
 
     def __init__(self, core: Core):
         super().__init__()
@@ -93,7 +96,132 @@ class Voice(QObject):
             self._say(text, lang)
 
 
+def apply_render(mode: str) -> None:
+    """选择画面渲染方式。必须在创建 QApplication 之前设置。
+
+    Windows 上 Qt WebEngine 默认走 D3D11，部分显卡 / 驱动下鼠标在界面上移动时，整个窗口偶尔会空白闪一两帧
+    （Qt 已知问题 QTBUG-123181）。换成 OpenGL，或者让网页用软件渲染，通常就不会了。
+    """
+    if mode == "opengl":
+        os.environ["QSG_RHI_BACKEND"] = "opengl"
+        os.environ["QT_WIDGETS_RHI_BACKEND"] = "opengl"
+
+
+GPU_KEY = r"Software\Microsoft\DirectX\UserGpuPreferences"
+
+
+def gpu_targets() -> list[str]:
+    """要指定显卡的程序：Python 本身（Qt 在这里合成画面）和 QtWebEngineProcess.exe（网页在这里渲染）。"""
+    out = []
+    exe = Path(sys.executable)
+    out += [str(exe.parent / n) for n in ("python.exe", "pythonw.exe")] if not getattr(sys, "frozen", False) else [str(exe)]
+    try:
+        from PySide6.QtCore import QLibraryInfo
+        out.append(str(Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.LibraryExecutablesPath)) / "QtWebEngineProcess.exe"))
+    except Exception:
+        pass
+    return [p for p in dict.fromkeys(out) if Path(p).exists()]
+
+
+def apply_gpu(pref: str, store: QSettings) -> None:
+    """双显卡电脑上选用哪张显卡：和 Windows「设置 → 显示 → 图形」里给程序选显卡是同一个设置（写在当前用户的注册表里）。
+
+    选「自动」时把我们改过的值恢复成原样（原来没有就删掉），不动用户自己在系统设置里给别的程序选的显卡。
+    另外给网页引擎加上 Chromium 的对应开关。
+    """
+    flag = {"high": "--force_high_performance_gpu", "low": "--force_low_power_gpu"}.get(pref)
+    if flag:
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "") + " " + flag).strip()
+    if sys.platform != "win32":
+        return
+    try:
+        import winreg
+
+        backup = json.loads(store.value("gpu_backup") or "{}")  # 路径 -> 改之前的值（None = 原来没有）
+        value = {"high": "GpuPreference=2;", "low": "GpuPreference=1;"}.get(pref)
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, GPU_KEY, 0, winreg.KEY_READ | winreg.KEY_WRITE) as k:
+            if value:
+                for path in gpu_targets():
+                    if path not in backup:
+                        try:
+                            backup[path] = winreg.QueryValueEx(k, path)[0]
+                        except OSError:
+                            backup[path] = None
+                    winreg.SetValueEx(k, path, 0, winreg.REG_SZ, value)
+            else:
+                for path, old in backup.items():
+                    try:
+                        if old is None:
+                            winreg.DeleteValue(k, path)
+                        else:
+                            winreg.SetValueEx(k, path, 0, winreg.REG_SZ, old)
+                    except OSError:
+                        pass
+                backup = {}
+        store.setValue("gpu_backup", json.dumps(backup))
+    except Exception as e:  # 改不了注册表也不影响使用
+        print("设置显卡偏好失败:", e, file=sys.stderr)
+
+
+def restart_command() -> tuple[str, list[str], str]:
+    """重新启动自己用的命令：(程序, 参数, 工作目录)"""
+    if getattr(sys, "frozen", False):  # PyInstaller 打包的 exe
+        return sys.executable, sys.argv[1:], str(Path(sys.executable).parent)
+    root = Path(__file__).resolve().parent.parent
+    return sys.executable, ["-m", "shici", *sys.argv[1:]], str(root)
+
+
 def run(core: Core, server: Server) -> int:
+    # 画面设置（渲染方式 + 显卡）。三道保险，保证不会因为这两个设置打不开程序：
+    #   1. 每次启动先记下“正在用某个配置启动”，界面真正画出来后由网页报告一声才划掉；
+    #      下次启动发现上次没划掉（闪退、卡死、白屏被关掉），说明这个配置在这台电脑上不行，自动换回默认；
+    #   2. 用户手动改过的配置，第一次启动要确认画面正常（像 Windows 改分辨率那样），15 秒不确认自动换回；
+    #   3. 「自动」在 N 卡 / A 卡上用 OpenGL（闪屏少），其他显卡用 D3D11；OpenGL 在这台电脑上出过问题就不再用。
+    store = QSettings(DATA_DIR_NAME, APP_ID)
+
+    def effective() -> tuple[str, str, str]:
+        render, gpu = core.settings.get("render", "auto"), core.settings.get("gpu", "auto")
+        if render == "auto":
+            seen = str(store.value("gpu_seen") or "").lower()
+            good = sys.platform == "win32" and store.value("gl_bad") != "1" and any(v in seen for v in ("nvidia", "amd", "radeon"))
+            backend = "opengl" if good else "d3d11"
+        else:
+            backend = render
+        return render, gpu, f"{backend}|{gpu}"
+
+    render, gpu, eff = effective()
+    failed = store.value("display_pending") == eff
+    unconfirmed = store.value("render_trial") == eff
+    if failed or unconfirmed:
+        if render == "auto" and eff.startswith("opengl"):
+            store.setValue("gl_bad", "1")
+        core.api_settings_set({"render": "auto", "gpu": "auto"})
+        core.display_reverted = True
+        render, gpu, eff = effective()
+    store.remove("render_trial")
+    explicit = render != "auto" or gpu != "auto"
+    if explicit and store.value("display_confirmed") != eff:
+        store.setValue("render_trial", eff)
+        core.render_trial = True
+    store.setValue("display_pending", eff)
+    apply_render(eff.split("|")[0])
+    apply_gpu(gpu, store)
+    store.sync()
+
+    def confirm():
+        store.remove("render_trial")
+        store.setValue("display_confirmed", eff)
+        store.sync()
+
+    def display_ok(renderer: str):
+        store.remove("display_pending")
+        if renderer:
+            store.setValue("gpu_seen", renderer)
+        store.sync()
+
+    core.render_confirm = confirm
+    core.display_ok = display_ok
+
     if sys.platform == "win32":  # 让任务栏显示我们自己的图标，而不是 Python 的
         try:
             import ctypes
@@ -132,7 +260,6 @@ def run(core: Core, server: Server) -> int:
     win.setWindowIcon(icon)
     win.setCentralWidget(view)
     win.setMinimumSize(980, 660)
-    store = QSettings(DATA_DIR_NAME, APP_ID)
     geo = store.value("geometry")
     if not (geo and win.restoreGeometry(geo)):
         win.resize(1360, 860)
@@ -163,6 +290,15 @@ def run(core: Core, server: Server) -> int:
         req.accept()
 
     view.page().profile().downloadRequested.connect(on_download)
+    def restart():
+        store.setValue("geometry", win.saveGeometry())
+        store.sync()
+        prog, args, cwd = restart_command()
+        QProcess.startDetached(prog, args, cwd)
+        app.quit()
+
+    voice.restart.connect(restart)
+    core.restarter = voice.restart.emit
     view.load(QUrl(server.url))
     win.show()
     view.setFocus()  # 让键盘快捷键一打开就能用，不用先点一下窗口

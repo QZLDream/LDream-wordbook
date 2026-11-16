@@ -1,6 +1,6 @@
 // 设置：学习量、发音、外观、音效、数据（含进度密钥）。
 import { api, speak } from "../api.js";
-import { h, fill, icons, toast, fail, ask, openLayer } from "../ui.js";
+import { h, fill, icons, toast, fail, ask, openLayer, gpuRenderer } from "../ui.js";
 import { app, applySettings, refreshNav, isDarkMode } from "../app.js";
 import * as sfx from "../sfx.js";
 import { family } from "../fonts.js";
@@ -19,6 +19,10 @@ export async function mount(root) {
       if (!quiet) toast("已保存");
     } catch (e) { fail(e); }
   };
+  const askRestart = async () => {
+    if (await ask("重启程序吗？", "这项设置要重启才生效。正在背的进度都已经保存了。", { ok: "立即重启" })) api("restart").catch(fail);
+  };
+  const gpuName = h("span", { class: "path", text: gpuRenderer() });
   const row = (title, desc, ctl, cls = "") => h("div", { class: "set-row " + cls }, h("div", { class: "txt" }, h("b", { text: title }), desc ? h("span", { text: desc }) : null), h("div", { class: "ctl" }, ctl));
   const seg = (key, opts, after, quiet) => {
     // quiet：点了会自己出声的选项（音色），不再叠加通用的点击音
@@ -138,7 +142,16 @@ export async function mount(root) {
       row("跟随系统明暗", "打开后，系统切到深色时自动变暗。", toggle(() => s.theme === "auto", (v) => set({ theme: v ? "auto" : (isDark() ? "dark" : "light") }, true), "跟随系统明暗")),
       row("主题", "简约白是柔和的白底、圆角卡片和无衬线字体；朱橙是纸白配朱红线条和斜切色块。两种都可以配暗色模式。", seg("palette", [["vermilion", "朱橙"], ["silver", "简约白"]])),
       row("动画", "觉得动画多或者电脑比较慢，可以减弱。", seg("motion", [["full", "完整"], ["reduced", "减弱"]])),
-      row("显示例句", "复习时在右侧显示例句。", flag("show_examples", "显示例句"))),
+      row("显示例句", "复习时在右侧显示例句。", flag("show_examples", "显示例句")),
+      ...(app.info.can_restart && app.info.platform === "win32" ? [
+        row("画面渲染方式",
+          "自动：N 卡、A 卡用 OpenGL，其他显卡用 D3D11。如果偶尔整个窗口空白闪一下（开着 Wallpaper Engine 这类动态壁纸时更容易出现），可以手动换另一种试试。改完要重启，重启后会让你确认画面是否正常，不确认 15 秒后自动换回；万一打不开，下次启动也会自动换回。",
+          seg("render", [["auto", "自动"], ["d3d11", "D3D11"], ["opengl", "OpenGL"]], askRestart)),
+        row("渲染显卡",
+          "双显卡电脑上用哪张显卡画界面：高性能是独立显卡，省电是核显。和 Windows「设置 → 显示 → 图形」里给程序选显卡是同一个设置，选回「自动」会恢复原样。只有一张显卡的电脑选哪个都一样。台式机的显示器一般插在独显上，选「省电」可能打不开，程序会自动换回。改完要重启。",
+          seg("gpu", [["auto", "自动"], ["high", "高性能"], ["low", "省电"]], askRestart)),
+        row("当前使用", null, gpuName)] : []),
+      ),
     group(3.5, "FONT · 字体", fontsBox),
     group(4, "SOUND · 音效",
       row("按键音效", "显示答案、评分、点按钮时给一点声音反馈。", toggle(() => s.sfx, async (v) => { await set({ sfx: v }, true); if (v) sfx.play("good", { force: true }); }, "按键音效")),

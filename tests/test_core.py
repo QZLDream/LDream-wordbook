@@ -615,3 +615,25 @@ def test_update_check_and_links(core, monkeypatch):
     assert core.api_open_url({"url": core.api_bootstrap({})["links"]["github"]})["opened"] and opened
     with pytest.raises(ApiError):
         core.api_open_url({"url": "file:///etc/passwd"})
+
+
+def test_render_setting_and_restart(core):
+    assert core.settings["render"] == "auto" and core.settings["sfx"] is True
+    core.api_settings_set({"render": "opengl"})
+    assert core.settings["render"] == "opengl"
+    for bad in ({"render": "vulkan"}, {"render": "software"}, {"gpu": "fast"}):
+        with pytest.raises(ApiError):
+            core.api_settings_set(bad)
+    core.api_settings_set({"gpu": "high", "render": "d3d11"})
+    assert core.settings["gpu"] == "high" and core.settings["render"] == "d3d11"
+    seen = []
+    core.display_ok = seen.append
+    core.api_display_ok({"renderer": "NVIDIA GeForce RTX 4060 Ti"})
+    assert seen == ["NVIDIA GeForce RTX 4060 Ti"]
+    assert core.api_restart({}) == {"restarting": False}       # 浏览器里打开时没法自己重启
+    calls = []
+    core.restarter = lambda: calls.append(1)
+    core.render_trial = True
+    assert core.api_restart({})["restarting"] and calls
+    core.api_render_confirm({})
+    assert core.api_bootstrap({})["render_trial"] is False

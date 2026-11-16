@@ -1,7 +1,7 @@
 // 启动、路由、顶部导航。
 import { api } from "./api.js";
 import { applyFonts } from "./fonts.js";
-import { $, $$, h, fail, ms, layerOpen, toast, icons } from "./ui.js";
+import { $, $$, h, fail, ms, layerOpen, toast, icons, openLayer, gpuRenderer } from "./ui.js";
 import * as sfx from "./sfx.js";
 
 const routes = {
@@ -155,11 +155,31 @@ document.addEventListener("keydown", (e) => {
 
 document.addEventListener("shici-toast", (e) => toast(e.detail, 9000));
 
+// 刚换了画面渲染方式或显卡：请用户确认画面正常。看不见这个窗口（画面坏了）就没法点，15 秒后自动换回并重启
+function confirmRender() {
+  let left = 15, kept = false, timer = 0;
+  const count = h("b", { text: String(left) });
+  const revert = async () => {
+    clearInterval(timer);
+    try { await api("settings_set", { render: "auto", gpu: "auto" }); await api("restart"); } catch (e) { fail(e); }
+  };
+  openLayer("modal", (close) => [
+    h("div", { class: "modal-head" }, h("div", {}, h("span", { class: "label", text: "DISPLAY · 画面" }),
+      h("h3", { class: "h2", style: { "margin-top": "10px" }, text: "画面设置已更改" }))),
+    h("div", { class: "modal-body" }, h("p", { class: "note" }, "画面显示正常吗？", count, " 秒后没有确认，会自动换回原来的方式并重启。")),
+    h("div", { class: "modal-foot" },
+      h("button", { class: "btn ghost sm", onclick: () => { kept = true; close(); revert(); } }, "换回去"),
+      h("button", { class: "btn sm", autofocus: true, onclick: () => { kept = true; clearInterval(timer); api("render_confirm").catch(() => {}); close(); toast("已保留新的渲染方式"); } }, "正常，保留")),
+  ], { width: "460px", onClose: () => { if (!kept) { kept = true; clearInterval(timer); api("render_confirm").catch(() => {}); } } });
+  timer = setInterval(() => { left -= 1; count.textContent = String(left); if (left <= 0) revert(); }, 1000);
+}
+
 async function boot() {
   const now = new Date();
   $("#navDate").textContent = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")} ${["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][now.getDay()]}`;
   try {
     app.info = await api("bootstrap");
+    window.__shiciDesktop = !!app.info.desktop;
     applySettings(app.info.settings);
   } catch (e) { fail(e); }
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => applySettings(app.settings));
@@ -170,6 +190,12 @@ async function boot() {
   document.fonts?.ready.then(() => moveInk((location.hash.match(/^#\/(\w+)/) || [])[1] || "home"));
   route();
   refreshNav();
+  if (app.info.can_restart) {
+    // 界面真正画出来了：告诉桌面程序这次的画面设置没问题（没报告就说明闪退或白屏，下次启动会自动换回）
+    requestAnimationFrame(() => requestAnimationFrame(() => api("display_ok", { renderer: gpuRenderer().replace(/^未知$/, "") }).catch(() => {})));
+  }
+  if (app.info.display_reverted) toast("上次的画面设置（渲染方式 / 显卡）没能正常打开程序，已自动换回「自动」。", 7000);
+  if (app.info.render_trial) confirmRender();
   // 自动检查更新：启动几秒后在后台问一次，有新版本才提示
   if (app.settings?.update_check) setTimeout(() => import("./update.js").then((m) => m.checkUpdate(false)), 4000);
 }

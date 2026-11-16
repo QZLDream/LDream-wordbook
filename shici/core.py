@@ -12,6 +12,7 @@ import lzma
 import random
 import re
 import sqlite3
+import sys
 import threading
 import time
 from datetime import date, datetime, timedelta
@@ -93,6 +94,8 @@ DEFAULTS = {
     "gloss_ja": "zh",       # 日语词的释义：zh 中日 / en 英日
     "show_domain": False,   # 显示「[计]」「[医]」这类专业领域释义
     "update_check": True,   # 启动时联网检查有没有新版本（只访问 GitHub 的发布页接口）
+    "render": "auto",       # 画面渲染方式（Windows 桌面版）：auto 自动（N 卡 / A 卡用 OpenGL）/ d3d11 / opengl
+    "gpu": "auto",          # 渲染用哪张显卡（Windows 双显卡）：auto 系统决定 / high 高性能 / low 省电
 }
 RELEASES_API = "https://api.github.com/repos/QZLDream/LDream-wordbook/releases/latest"
 LINKS = {
@@ -126,6 +129,8 @@ class Core:
         for r in self.db.execute("SELECT k, v FROM settings"):
             if r["k"] in DEFAULTS:
                 self.settings[r["k"]] = json.loads(r["v"])
+        if self.settings["render"] not in ("auto", "d3d11", "opengl"):  # 0.5.3 的「软件渲染」已去掉
+            self.settings["render"] = "auto"
         self.srs = Srs(self.settings["retention"])
         self._apply_gloss()
         self._undo: list[int] = []
@@ -136,6 +141,11 @@ class Core:
         self.clipboard = None  # 桌面外壳注入：clipboard(text) 写入系统剪贴板
         self.voice_langs: set[str] | None = None  # 系统语音支持的语言；None = 还不知道
         self.opener = None   # 桌面外壳注入：opener(path) 在文件管理器里打开
+        self.restarter = None      # 桌面外壳注入：restarter() 重启程序（换渲染方式后用）
+        self.render_trial = False  # 桌面外壳设置：这次是不是刚换了渲染方式、等用户确认画面正常
+        self.render_confirm = None # 桌面外壳注入：用户确认新的渲染方式没问题
+        self.display_ok = None     # 桌面外壳注入：界面已经正常画出来（参数：网页用的显卡名）
+        self.display_reverted = False  # 上次的画面设置没能正常打开，这次已自动换回默认
         self.url_opener = None  # 桌面外壳注入：url_opener(url) 用系统浏览器打开网页
 
     # ------------------------------------------------------------ 调度入口
@@ -674,7 +684,8 @@ class Core:
     # ------------------------------------------------------------ 设置与数据
     def api_bootstrap(self, p: dict) -> dict:
         return {"app": APP_NAME, "version": __version__, "settings": self.settings, "data_dir": str(self.dir), "links": LINKS,
-                "desktop": self.speaker is not None, "voice_packs": self.voice.pack_langs(), "user_fonts": self.fonts.list()}
+                "desktop": self.speaker is not None,
+                "can_restart": self.restarter is not None, "platform": sys.platform, "render_trial": self.render_trial, "display_reverted": self.display_reverted, "voice_packs": self.voice.pack_langs(), "user_fonts": self.fonts.list()}
 
     # ------------------------------------------------------------ 字体
     def api_fonts(self, p: dict) -> dict:
@@ -695,12 +706,31 @@ class Core:
             self.api_settings_set(reset)
         return {"user": self.fonts.list(), "settings": self.settings}
 
+    def api_restart(self, p: dict) -> dict:
+        """重启程序（桌面版）。浏览器里打开的没法自己重启。"""
+        if not self.restarter:
+            return {"restarting": False}
+        self.restarter()
+        return {"restarting": True}
+
+    def api_display_ok(self, p: dict) -> dict:
+        if self.display_ok:
+            self.display_ok(str(p.get("renderer") or "")[:200])
+        return {"ok": True}
+
+    def api_render_confirm(self, p: dict) -> dict:
+        self.render_trial = False
+        if self.render_confirm:
+            self.render_confirm()
+        return {"ok": True}
+
     def api_settings_set(self, p: dict) -> dict:
         ranges = {"new_per_day": (0, 500), "review_per_day": (0, 5000), "day_start": (0, 12)}
         ranges["sfx_volume"] = (0, 100)
         choices = {"order": ("freq", "random", "alpha"), "voice": ("builtin", "online", "system"), "accent": ("us", "uk"),
                    "theme": ("light", "dark", "auto"), "motion": ("full", "reduced"), "palette": ("vermilion", "silver"),
-                   "sfx_set": ("wood", "felt", "stone", "keys", "glass"), "gloss_en": ("zh", "ja"), "gloss_ja": ("zh", "en")}
+                   "sfx_set": ("wood", "felt", "stone", "keys", "glass"), "gloss_en": ("zh", "ja"), "gloss_ja": ("zh", "en"),
+                   "render": ("auto", "d3d11", "opengl"), "gpu": ("auto", "high", "low")}
         for k, v in p.items():
             if k not in DEFAULTS:
                 continue
@@ -766,13 +796,16 @@ class Core:
 
         返回 handled=True 表示已经由桌面程序播放；否则界面自己播放 audio（base64 的 MP3），
         两者都没有时界面退回浏览器自带的朗读。
+        web=True：界面要自己播放音频文件（用 Web Audio，带淡入淡出，不会断续爆音），即使在桌面版也把音频传回去；
+        系统语音仍由桌面程序朗读。
         """
         text, lang = (p.get("text") or "").strip(), p.get("lang") or "en"
         if not text:
             return {"handled": True}
         s = self.settings
+        native = self.speaker if not p.get("web") else None
         if p.get("kind") == "sentence":
-            return self._speak_sentence(text, lang)
+            return self._speak_sentence(text, lang, native)
         order = {"online": ("online", "builtin", "system"), "system": ("system", "builtin", "online")}.get(
             s["voice"], ("builtin", "online", "system"))
         for src in order:
@@ -788,8 +821,8 @@ class Core:
                     self.speaker(text, lang, "")
                     return {"handled": True, "source": "system"}
             if data:
-                if self.speaker:
-                    self.speaker(text, lang, str(self.voice.as_file(src, lang, text, data)))
+                if native:
+                    native(text, lang, str(self.voice.as_file(src, lang, text, data)))
                     return {"handled": True, "source": src}
                 return {"handled": False, "source": src, "audio": base64.b64encode(data).decode("ascii")}
         return {"handled": True, "missing": lang}
@@ -797,7 +830,7 @@ class Core:
     def _online_ok(self) -> bool:
         return self.settings["voice"] == "online" or bool(self.settings["online_fallback"])
 
-    def _speak_sentence(self, text: str, lang: str) -> dict:
+    def _speak_sentence(self, text: str, lang: str, native=None) -> dict:
         """例句：缓存 → 联网取（允许联网时）→ 系统语音 → 浏览器朗读。选了“系统语音”时系统语音优先。"""
         s = self.settings
         accent = s["accent"]
@@ -809,8 +842,8 @@ class Core:
         if not data and self._online_ok():
             data = self.voice.sentence(lang, text, accent)
         if data:
-            if self.speaker:
-                self.speaker(text, lang, str(self.voice.as_file("sent", lang, text, data)))
+            if native:
+                native(text, lang, str(self.voice.as_file("sent", lang, text, data)))
                 return {"handled": True, "source": "online"}
             return {"handled": False, "source": "online", "audio": base64.b64encode(data).decode("ascii")}
         if system_ok:

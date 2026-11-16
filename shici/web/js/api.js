@@ -20,6 +20,8 @@ export async function api(name, params) {
 
 let audio = null;
 const warned = {};
+// 是不是桌面版（启动时 app.js 会设置）；不直接引用 app.js，避免循环依赖
+const app_desktop = () => !!window.__shiciDesktop;
 function webSpeech(text, lang) {
   if (!("speechSynthesis" in window)) return;
   const u = new SpeechSynthesisUtterance(text);
@@ -29,13 +31,57 @@ function webSpeech(text, lang) {
   speechSynthesis.speak(u);
 }
 
-// 朗读。后台按“内置语音包 → 在线发音 → 系统语音”的顺序找（顺序随设置变化）：
-// 桌面版由后台直接播放；在浏览器里打开时后台把音频传回来，由这里播放；都没有就用浏览器自带的朗读。
-// kind = "sentence" 时朗读例句：先找本机缓存，再联网取（取到后永久缓存），最后用系统语音。
+// 发音用 Web Audio 播放：整段先解码进内存再播，不会因为电脑忙而断续（以前交给 Qt 播放器边解码边播，偶尔会掉几毫秒，听起来是“噼”的爆音）；
+// 开头 4ms 淡入、打断时 15ms 淡出，避免波形被硬切产生咔哒声。解码好的音频留一小份缓存，重复播放不用再解码。
+let actx = null, voiceOut = null, playing = null, webAudioOk = true;
+const decoded = new Map();
+function audioCtx() {
+  if (!actx) {
+    const C = window.AudioContext || window.webkitAudioContext;
+    if (!C) return null;
+    actx = new C({ latencyHint: "playback" });
+    voiceOut = actx.createGain();
+    voiceOut.connect(actx.destination);
+  }
+  if (actx.state === "suspended") actx.resume().catch(() => {});
+  return actx;
+}
+function stopVoice() {
+  if (!playing) return;
+  const { src, gain } = playing, t = actx.currentTime;
+  gain.gain.cancelScheduledValues(t);
+  gain.gain.setValueAtTime(gain.gain.value, t);
+  gain.gain.linearRampToValueAtTime(0, t + 0.015);
+  try { src.stop(t + 0.02); } catch { /* 已经停了 */ }
+  playing = null;
+}
+async function playClip(key, b64) {
+  const c = audioCtx();
+  if (!c) throw new Error("no web audio");
+  let buf = decoded.get(key);
+  if (!buf) {
+    const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+    buf = await c.decodeAudioData(bytes.buffer);
+    decoded.set(key, buf);
+    if (decoded.size > 60) decoded.delete(decoded.keys().next().value);
+  }
+  stopVoice();
+  const src = c.createBufferSource(), gain = c.createGain(), t = c.currentTime + 0.01;
+  src.buffer = buf;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(1, t + 0.004);
+  src.connect(gain).connect(voiceOut);
+  src.start(t);
+  const me = { src, gain };
+  src.onended = () => { if (playing === me) playing = null; };
+  playing = me;
+}
+
 export async function speak(text, lang = "en", kind = "word") {
   if (!text) return;
   try {
-    const r = await api("speak", { text, lang, kind });
+    const web = webAudioOk && !!(window.AudioContext || window.webkitAudioContext);
+    const r = await api("speak", { text, lang, kind, web });
     const name = (r.missing || lang) === "ja" ? "日语" : "英语";
     if (r.missing && r.kind === "sentence") {
       if (!warned["s" + r.missing]) {
@@ -46,8 +92,15 @@ export async function speak(text, lang = "en", kind = "word") {
       warned[r.missing] = true;
       document.dispatchEvent(new CustomEvent("shici-toast", { detail: `「${text}」不在内置语音包里，联网也没取到发音，系统里又没有${name}语音，所以读不出来。联网后再试一次就会缓存下来。` }));
     }
-    if (r.handled) return;
+    if (r.handled) { if (r.source === "system") stopVoice(); return; }
     if (r.audio) {
+      if (web) {
+        try { await playClip(`${kind}|${lang}|${text}|${r.source}`, r.audio); return; } catch {
+          // 解码不了（个别系统的内置浏览器不支持 MP3）：以后都交回桌面程序播放
+          webAudioOk = false;
+          if (app_desktop()) { await api("speak", { text, lang, kind, web: false }); return; }
+        }
+      }
       if (audio) audio.pause();
       audio = new Audio("data:audio/mpeg;base64," + r.audio);
       audio.play().catch(() => webSpeech(text, lang));
