@@ -2,6 +2,7 @@
 
 [![B站 · 千醉_LDream](https://img.shields.io/badge/B%E7%AB%99-%E5%8D%83%E9%86%89__LDream-FB7299?logo=bilibili&logoColor=white)](https://space.bilibili.com/397075230)
 
+因为电脑上没有好用好看的词典.....我就自己做了一个！
 一个在电脑上用的背单词程序：看到单词先自己回忆，再点「忘记 / 模糊 / 认识」，程序用 **FSRS 遗忘曲线算法**安排下一次复习。
 数据全部存在本机，不需要账号，也不需要联网。
 
