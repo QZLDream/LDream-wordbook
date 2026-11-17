@@ -1,6 +1,6 @@
 // 词库：词书、我的词表、单词列表、单词详情、添加单词、导入词表。
 import { api, speak } from "../api.js";
-import { h, $, fill, icons, defBlock, exampleEl, toast, fail, openLayer, ask, fmtDue, pct, STATUS, debounce, bindTips } from "../ui.js";
+import { h, $, fill, icons, defBlock, exampleEl, toast, fail, openLayer, ask, fmtDue, pct, STATUS, debounce, bindTips, wordExtras } from "../ui.js";
 import { app, refreshNav } from "../app.js";
 import { curveChart } from "../charts.js";
 
@@ -226,6 +226,7 @@ export async function itemDrawer(id, onChange) {
         h("button", { class: "icon-btn", "aria-label": "朗读", html: icons.speaker, onclick: () => speak(it.term, it.lang) })),
       h("section", {}, h("span", { class: "label", text: "DEFINITION · 释义" }), defBlock(it.definition, 12, { style: { "max-height": "none" } }),
         it.auto_def ? h("p", { class: "auto-def", text: "这条中文释义是程序自动匹配的，仅供参考。" }) : null),
+      wordExtras(it) ? h("section", {}, h("span", { class: "label", text: "WORD FAMILY · 词根与近反义" }), wordExtras(it)) : null,
       c ? h("section", {}, h("span", { class: "label", text: "MEMORY · 记忆状态" }),
         h("div", { class: "kv" }, kv("现在还记得", pct(c.recall)), kv("稳定度", c.stability < 10 ? c.stability.toFixed(1) + " 天" : Math.round(c.stability) + " 天"),
           kv("下次复习", fmtDue(c.due, now)), kv("复习 / 遗忘", `${c.reps} / ${c.lapses}`)),

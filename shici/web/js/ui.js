@@ -228,3 +228,24 @@ export function gpuRenderer() {
   } catch { return "未知"; }
 }
 
+
+// 英语单词的词根拆分、同根词、近义词、反义词（设置里打开才有数据）。compact：复习页里只显示少几个
+export function wordExtras(it, compact = false) {
+  const r = it.roots, rel = it.related;
+  const rows = [];
+  const words = (list, n) => h("span", { class: "wx-words" }, list.slice(0, n).map((x) =>
+    h("span", { class: "wx-w" }, h("b", { text: x.w }), x.g ? h("i", { text: x.g }) : null)));
+  if (r && r.parts?.length) {
+    const show = (p) => (p.k === "p" ? p.t + "-" : p.k === "s" ? "-" + p.t : p.t);
+    const parts = [];
+    r.parts.forEach((p, i) => {
+      if (i) parts.push(h("span", { class: "wx-plus", text: "+" }));
+      parts.push(h("span", { class: "wx-part k-" + p.k }, h("b", { text: show(p) }), p.m ? h("i", { text: p.m }) : null));
+    });
+    rows.push(h("div", { class: "wx-row" }, h("span", { class: "wx-k", text: "词根" }), h("span", { class: "wx-parts" }, parts)));
+    if (r.family?.length) rows.push(h("div", { class: "wx-row fam" }, h("span", { class: "wx-k", text: "同根" }), words(r.family, compact ? 4 : 6)));
+  }
+  if (rel?.syn?.length) rows.push(h("div", { class: "wx-row" }, h("span", { class: "wx-k", text: "近义" }), words(rel.syn, compact ? 4 : 6)));
+  if (rel?.ant?.length) rows.push(h("div", { class: "wx-row" }, h("span", { class: "wx-k", text: "反义" }), words(rel.ant, compact ? 3 : 4)));
+  return rows.length ? h("div", { class: "wx" + (compact ? " compact" : "") }, rows) : null;
+}

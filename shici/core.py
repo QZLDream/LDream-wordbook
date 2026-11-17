@@ -92,7 +92,9 @@ DEFAULTS = {
     "day_start": 4,         # 一天从凌晨几点开始算
     "gloss_en": "zh",       # 英语词的释义：zh 英中 / ja 日英
     "gloss_ja": "zh",       # 日语词的释义：zh 中日 / en 英日
-    "show_domain": False,   # 显示「[计]」「[医]」这类专业领域释义
+    "show_domain": False,
+    "show_roots": False,    # 英语单词显示词根拆分和同根词
+    "show_related": False,  # 英语单词显示近义词、反义词   # 显示「[计]」「[医]」这类专业领域释义
     "update_check": True,   # 启动时联网检查有没有新版本（只访问 GitHub 的发布页接口）
     "render": "auto",       # 画面渲染方式（Windows 桌面版）：auto 自动（N 卡 / A 卡用 OpenGL）/ d3d11 / opengl
     "gpu": "auto",          # 渲染用哪张显卡（Windows 双显卡）：auto 系统决定 / high 高性能 / low 省电
@@ -193,6 +195,12 @@ class Core:
             out["examples"] = mine + self.dict.examples(it["lang"], (entry or {}).get("word", it["term"]))
             out["custom_definition"] = it["definition"] is not None
             out["sources"] = self._source_titles(it["id"])
+            if it["lang"] == "en":
+                base = (entry or {}).get("word", it["term"])
+                if self.settings.get("show_roots"):
+                    out["roots"] = self.dict.morph(base)
+                if self.settings.get("show_related"):
+                    out["related"] = self.dict.related(base)
         return out
 
     def _source_titles(self, item_id: int) -> list[str]:

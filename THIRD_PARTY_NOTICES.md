@@ -9,6 +9,7 @@
 |---|---|---|---|
 | `shici/data/dict_en.db`（entries、forms、books 表） | 英语释义、音标、词频、考试标签 | [ECDICT](https://github.com/skywind3000/ECDICT)，Copyright (c) Linwei | MIT |
 | `shici/data/dict_en.db`（sentences、examples 表） | 英汉例句，保留了 Tatoeba 句子编号 | [Tatoeba](https://tatoeba.org) | CC BY 2.0 FR |
+| `shici/data/dict_en.db`（`morph`、`morph_root`、`related` 表） | 词根拆分、同根词、近义词 / 反义词 | 词根 / 前缀 / 后缀表和中文意思为本项目自己整理（`tools/roots_data.py`，MIT）；拆分时用 [维基词典](https://en.wiktionary.org/)（经 [kaikki.org](https://kaikki.org/) / wiktextract 提取）的词源核对，近义词 / 反义词来自维基词典和 WordNet 3.0 | 维基词典部分 CC BY-SA 4.0；WordNet License（见下） |
 | `shici/data/dict_en.db`（sid 为负数的 sentences） | 生僻词的用法示例 | [WordNet 3.0](https://wordnet.princeton.edu/)，Copyright 2006 Princeton University | WordNet License（见下） |
 | `shici/data/dict_en.db`（sid 为负数且带中文译文的 sentences）、`tools/extra_examples_en.tsv` | 约 800 个生僻词的例句和译文 | 本项目自己编写 | 与程序代码相同（MIT） |
 | `shici/data/dict_ja.db`（sentences、examples 表） | 日语例句及中文 / 英文译文 | [Tatoeba](https://tatoeba.org) | CC BY 2.0 FR |

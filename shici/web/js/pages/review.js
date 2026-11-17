@@ -1,6 +1,6 @@
 // 复习：看词回忆 → 显示答案 → 忘记 / 模糊 / 认识。也负责拼写模式和自由拼写练习。
 import { api, speak } from "../api.js";
-import { h, $, fill, icons, letters, defBlock, exampleEl, toast, fail, ms, wait, EASE, reduced, countUp } from "../ui.js";
+import { h, $, fill, icons, letters, defBlock, exampleEl, wordExtras, toast, fail, ms, wait, EASE, reduced, countUp } from "../ui.js";
 import { app, refreshNav } from "../app.js";
 import * as sfx from "../sfx.js";
 
@@ -22,7 +22,7 @@ export async function mount(root, query) {
   const host = h("div", { class: "rv-host" });
   const modeName = { recall: "REVIEW<span class=\"sep\">·</span>复习", spell: "SPELL<span class=\"sep\">·</span>拼写", practice: "PRACTICE<span class=\"sep\">·</span>自由拼写" }[mode];
   root.append(h("div", { class: "review" },
-    h("div", { class: "rv-top" },
+    h("div", { class: "rv-top rise" },
       h("div", { class: "rv-bar" }, bar),
       h("span", { class: "label", html: `<b>01</b> / ${modeName}` }),
       h("div", { class: "rv-counts" },
@@ -32,10 +32,16 @@ export async function mount(root, query) {
     ),
     host));
 
+  let barShown = false;
+  function setBar(v) {
+    // 第一次：先让浏览器按 0 画一遍，再设成实际进度，进度条才会从左边长出来（否则和页面同一帧设好，直接就是满的）
+    if (!barShown) { barShown = true; void bar.offsetWidth; }
+    bar.style.transform = `scaleX(${v})`;
+  }
   function updateTop() {
     const c = S.counts;
     if (mode === "practice") {
-      bar.style.transform = `scaleX(${S.practiceTotal ? S.session.n / S.practiceTotal : 0})`;
+      setBar(S.practiceTotal ? S.session.n / S.practiceTotal : 0);
       return;
     }
     if (!c) return;
@@ -47,7 +53,7 @@ export async function mount(root, query) {
       }
     }
     const all = c.done + c.total;
-    bar.style.transform = `scaleX(${all ? c.done / all : 0})`;
+    setBar(all ? c.done / all : 0);
     undoBtn.style.visibility = S.canUndo ? "visible" : "hidden";
     refreshNav(c);
   }
@@ -91,6 +97,7 @@ export async function mount(root, query) {
       h("div", { class: "reading" }, readingText(card),
         h("button", { class: "icon-btn", title: "朗读 (R)", "aria-label": "朗读", html: icons.speaker, onclick: (e) => { e.stopPropagation(); speakCard(); } })));
     const examples = app.settings.show_examples ? card.examples.slice(0, 2) : [];
+    const extras = wordExtras(card, true);  // 词根、近反义词（设置里打开才有）
     const note = h("textarea", { class: "note-box", placeholder: "写一句帮自己记住它的话…", rows: 2 });
     note.value = card.note || "";
     note.addEventListener("change", () => api("item_update", { id: card.id, note: note.value }).then(() => { card.note = note.value; toast("助记已保存"); }).catch(fail));
@@ -107,6 +114,7 @@ export async function mount(root, query) {
         h("div", { class: "slab" }, h("div", { class: "inner" },
           h("div", {}, h("span", { class: "label", text: "EXAMPLES · 例句" }),
             examples.length ? examples.map((ex) => exampleEl(ex, card.term, card.lang)) : h("div", { class: "ex none", text: "这个词暂时没有例句，可以在词库里自己加。" })),
+          extras ? h("div", {}, h("span", { class: "label", text: "WORD FAMILY · 词根与近反义" }), extras) : null,
           h("div", {}, h("span", { class: "label", text: "MEMO · 助记" }), note),
           h("div", { class: "rv-meta" },
             h("div", {}, h("span", { class: "label", text: "已复习" }), h("span", { class: "num", text: `${card.reps} 次` })),

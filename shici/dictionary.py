@@ -1,6 +1,7 @@
 """内置词典（只读）：英语 ECDICT + Tatoeba 例句，日语 JLPT 词表 + JMdict 释义。"""
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import threading
@@ -54,6 +55,68 @@ class Dictionary:
         out = {k: row[k] for k in ("word", "phonetic", "translation", "tags", "rank")}
         out["translation"], out["auto"] = self._gloss(lang, row)
         return out
+
+    # ---- 词根、近义词 / 反义词（只有英语） ----
+    def _has(self, table: str) -> bool:
+        con = self._db.get("en")
+        if not con:
+            return False
+        key = "__t_" + table
+        if key not in self._cols:
+            self._cols[key] = bool(con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone())
+        return self._cols[key]
+
+    def _base(self, con, word: str, table: str):
+        """先按原词查，查不到再按原形（went → go）查"""
+        w = word.strip().lower()
+        row = con.execute(f"SELECT * FROM {table} WHERE word=?", (w,)).fetchone()
+        if not row:
+            lemma = con.execute("SELECT lemma FROM forms WHERE form=? LIMIT 1", (w,)).fetchone()
+            if lemma:
+                row = con.execute(f"SELECT * FROM {table} WHERE word=?", (lemma[0].lower(),)).fetchone()
+        return row
+
+    def short_gloss(self, word: str) -> str:
+        """很短的释义（一两个词），给同根词、近义词后面注一下"""
+        e = self.lookup("en", word)
+        if not e:
+            return ""
+        line = next((l for l in e["translation"].split("\n") if l.strip() and not DOMAIN_LINE.match(l)), "")
+        line = re.sub(r"^\s*(?:[a-z]{1,5}\.\s*(?:[/&]\s*[a-z]{1,5}\.\s*)*)", "", line)
+        first = re.split(r"[,，;；]", line)[0].strip()
+        return first[:10]
+
+    def morph(self, word: str) -> dict | None:
+        """词根拆分：{parts: [{t, k, m}], family: [{w, g}]}；k = p 前缀 / r 词根 / s 后缀 / w 英语单词"""
+        con = self._db.get("en")
+        if not con or not self._has("morph"):
+            return None
+        with self._lock:
+            row = self._base(con, word, "morph")
+            if not row:
+                return None
+            parts = [{"t": t, "k": k, "m": m} for t, k, m in json.loads(row["parts"])]
+            fam = []
+            root = con.execute("SELECT root FROM morph_root WHERE word=? LIMIT 1", (row["word"],)).fetchone()
+            if root:
+                fam = [r[0] for r in con.execute(
+                    "SELECT word FROM morph_root WHERE root=? AND word<>? ORDER BY score LIMIT 6", (root[0], row["word"]))]
+        for p in parts:
+            if p["k"] == "w":
+                p["m"] = self.short_gloss(p["t"])
+        return {"word": row["word"], "parts": parts, "family": [{"w": w, "g": self.short_gloss(w)} for w in fam]}
+
+    def related(self, word: str) -> dict | None:
+        """近义词 / 反义词：{syn: [{w, g}], ant: [{w, g}]}"""
+        con = self._db.get("en")
+        if not con or not self._has("related"):
+            return None
+        with self._lock:
+            row = self._base(con, word, "related")
+        if not row:
+            return None
+        pack = lambda ws: [{"w": w, "g": self.short_gloss(w)} for w in json.loads(ws)]
+        return {"syn": pack(row["syn"]), "ant": pack(row["ant"])}
 
     def _gloss(self, lang: str, row) -> tuple[str, bool]:
         """按设置挑释义语言，没有就退回默认的那份；auto=True 表示释义是程序自动匹配的（非人工词典）"""

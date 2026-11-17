@@ -641,3 +641,17 @@ def test_render_setting_and_restart(core):
     assert core.api_restart({})["restarting"] and calls
     core.api_render_confirm({})
     assert core.api_bootstrap({})["render_trial"] is False
+
+
+def test_roots_and_related(core):
+    iid = core.api_add_word({"lang": "en", "term": "transportation"})["id"]
+    assert "roots" not in core.api_item({"id": iid})  # 默认关闭
+    m = core.dict.morph("transportation")
+    assert [p["t"] for p in m["parts"]] == ["trans", "port", "ation"] and m["parts"][1]["k"] == "r"
+    assert any(f["w"] == "export" or f["w"] == "report" for f in m["family"])
+    assert core.dict.morph("went") is None  # 没有可信拆法的词不拆
+    r = core.dict.related("happier")  # 变形词按原形查
+    assert any(x["w"] == "glad" for x in r["syn"]) and any(x["w"] == "unhappy" for x in r["ant"])
+    core.api_settings_set({"show_roots": True, "show_related": True})
+    it = core.api_item({"id": iid})
+    assert it["roots"]["parts"][1]["t"] == "port" and "syn" in it["related"]

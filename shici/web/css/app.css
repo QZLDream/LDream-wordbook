@@ -116,6 +116,11 @@ svg { display: block; }
   -webkit-mask: url("../img/logo.png") center / contain no-repeat; mask: url("../img/logo.png") center / contain no-repeat;
   transition: transform .6s var(--ease), background-color .5s var(--ease); transform-origin: 40% 60%; }
 .brand:hover .brand-logo { transform: rotate(-4deg) scale(1.05); }
+/* 左上角的小猫（和程序图标同一个图案，代替原来的“小梦的词书”几个字），同样用遮罩上色，跟着文字颜色走；鼠标放上去歪一下头 */
+.brand-cat { display: block; position: relative; top: -3.5px; width: 44px; height: 17px; flex: none; margin: 0 -2px 0 -14px; background: var(--ink);
+  -webkit-mask: url("../img/cat.png") center / contain no-repeat; mask: url("../img/cat.png") center / contain no-repeat;
+  transition: transform .6s var(--ease), background-color .5s var(--ease); transform-origin: 50% 80%; }
+.brand:hover .brand-cat { transform: rotate(-8deg) translateY(-1px); }
 .brand-sub { font: 500 10px/1 var(--mono); letter-spacing: .22em; color: var(--mute); }
 .brand-sub i { color: var(--accent); font-style: normal; }
 .tabs { position: relative; display: flex; gap: 4px; height: var(--nav-h); }
@@ -215,7 +220,7 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 
 /* ---------- 复习 ---------- */
 .review { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-.rv-top { display: flex; align-items: center; justify-content: space-between; padding: 18px var(--pad) 0; position: relative; z-index: 5; }
+.rv-top { display: flex; align-items: center; justify-content: space-between; padding: 18px var(--pad) 0; position: relative; z-index: 5; animation: fade .5s var(--ease) both; }
 .rv-counts { display: flex; align-items: center; gap: 18px; }
 .rv-counts span { display: inline-flex; align-items: baseline; gap: 7px; }
 .rv-counts .num { font-size: 14px; color: var(--ink); min-width: 1.2em; text-align: right; transition: color .4s; }
@@ -657,3 +662,25 @@ a, img, svg { -webkit-user-drag: none; }
 body { -webkit-user-select: none; user-select: none; }
 input, textarea, [contenteditable], .keybox, .update-notes, .path,
 .drawer .term, .drawer .def, .drawer .ex, .drawer .note-box { -webkit-user-select: text; user-select: text; }
+
+/* 词根、同根词、近义 / 反义词 */
+.wx { margin-top: 18px; display: grid; gap: 10px; font-size: 14px; line-height: 1.5; }
+.wx.compact { margin-top: 16px; gap: 8px; font-size: 13px; }
+.wx-row { display: flex; gap: 14px; align-items: baseline; }
+.wx-k { flex: none; font: 600 11px/1.9 var(--sans); letter-spacing: .12em; color: var(--faint); }
+.wx-parts, .wx-words { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; min-width: 0; }
+.wx-parts { gap: 6px 8px; }
+.wx-part b, .wx-w b { font-weight: 600; color: var(--ink); }
+.wx-part i, .wx-w i { font-style: normal; color: var(--mute); margin-left: 5px; }
+.wx-part.k-r b { color: var(--accent); }
+.wx-plus { color: var(--faint); }
+.wx-part, .wx-w { -webkit-user-select: text; user-select: text; }
+/* 复习页右侧面板里的词根 / 近反义：跟着面板的配色（朱橙是深色面板）；窗口矮的时候不显示同根词，免得挤掉助记 */
+.rv-side .wx { margin-top: 0; }
+.rv-side .wx-k, .rv-side .wx-plus, .rv-side .wx-part i, .rv-side .wx-w i { color: var(--on-panel-mute); }
+.rv-side .wx-part b, .rv-side .wx-w b { color: var(--on-panel); }
+.rv-side .wx-part.k-r b { color: var(--panel-accent, var(--accent)); }
+@media (max-height: 820px) { .wx.compact .wx-row.fam { display: none; } }
+/* 右侧面板放了词根 / 近反义时，窗口矮就收紧间距、不显示底部的复习次数，免得溢出面板 */
+.rv-side .inner:has(.wx) { gap: 22px; }
+@media (max-height: 800px) { .rv-side .inner:has(.wx) { gap: 16px; } .rv-side .inner:has(.wx) .rv-meta { display: none; } }
