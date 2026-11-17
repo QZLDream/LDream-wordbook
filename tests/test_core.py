@@ -630,6 +630,10 @@ def test_render_setting_and_restart(core):
     core.display_ok = seen.append
     core.api_display_ok({"renderer": "NVIDIA GeForce RTX 4060 Ti"})
     assert seen == ["NVIDIA GeForce RTX 4060 Ti"]
+    looks = []
+    core.look_changed = lambda dark, silver: looks.append((dark, silver))
+    core.api_look({"dark": True, "palette": "silver"})
+    assert looks == [(True, True)]
     assert core.api_restart({}) == {"restarting": False}       # 浏览器里打开时没法自己重启
     calls = []
     core.restarter = lambda: calls.append(1)

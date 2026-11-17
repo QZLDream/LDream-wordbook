@@ -145,6 +145,7 @@ class Core:
         self.render_trial = False  # 桌面外壳设置：这次是不是刚换了渲染方式、等用户确认画面正常
         self.render_confirm = None # 桌面外壳注入：用户确认新的渲染方式没问题
         self.display_ok = None     # 桌面外壳注入：界面已经正常画出来（参数：网页用的显卡名）
+        self.look_changed = None   # 桌面外壳注入：主题 / 明暗变了（参数：是否暗色, 是否简约白），用来同步窗口底色
         self.display_reverted = False  # 上次的画面设置没能正常打开，这次已自动换回默认
         self.url_opener = None  # 桌面外壳注入：url_opener(url) 用系统浏览器打开网页
 
@@ -712,6 +713,11 @@ class Core:
             return {"restarting": False}
         self.restarter()
         return {"restarting": True}
+
+    def api_look(self, p: dict) -> dict:
+        if self.look_changed:
+            self.look_changed(bool(p.get("dark")), p.get("palette") == "silver")
+        return {"ok": True}
 
     def api_display_ok(self, p: dict) -> dict:
         if self.display_ok:

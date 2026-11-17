@@ -29,6 +29,7 @@ class Voice(QObject):
     open_url = Signal(str)
     copy_text = Signal(str)
     restart = Signal()
+    look = Signal(bool, bool)         # 是否暗色, 是否简约白
 
     def __init__(self, core: Core):
         super().__init__()
@@ -254,7 +255,13 @@ def run(core: Core, server: Server) -> int:
     view.settings().setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)  # 按键音效不需要先点一下
     dark = core.settings.get("theme") == "dark"
     silver = core.settings.get("palette") == "silver"
-    view.page().setBackgroundColor(QColor(("#0B0B0D" if silver else "#121214") if dark else ("#F5F5F7" if silver else "#F6F5F2")))  # 加载时不闪白
+
+    def backdrop(dark: bool, silver: bool):  # 网页还没画出来的地方露出的底色：和当前主题一致，加载、换主题、拉大窗口时都不闪白
+        view.page().setBackgroundColor(QColor(("#0B0B0D" if silver else "#121214") if dark else ("#F5F5F7" if silver else "#F6F5F2")))
+
+    backdrop(dark, silver)
+    voice.look.connect(backdrop)
+    core.look_changed = voice.look.emit
     win = QMainWindow()
     win.setWindowTitle(APP_NAME)
     win.setWindowIcon(icon)

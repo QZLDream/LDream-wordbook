@@ -32,7 +32,11 @@ export function applySettings(s) {
   // 换肤动画要等下一帧截好旧画面才真正改 data-theme，这期间后台的保存结果先回来的话，
   // 读 data-theme 会以为还没换、再触发一次换肤，把正在播的淡入淡出跳过（看起来就是“有时候没动画、直接闪过去”）
   const key = theme + "/" + palette;
-  if (key !== wantLook) { wantLook = key; swapLook(look); } else if (!swapping) look();
+  if (key !== wantLook) {
+    wantLook = key; swapLook(look);
+    // 窗口底色跟着换：偶尔有一帧来不及画、或者拉大窗口露出新区域时，露出来的是当前主题的颜色，而不是启动时那个主题的
+    api("look", { dark, palette }).catch(() => {});
+  } else if (!swapping) look();
   applyFonts(s, app.info.user_fonts || []);
   sfx.configure(s);
   app.lookReady = true;
@@ -61,7 +65,12 @@ function swapLook(change) {
     return `::view-transition-old(live-toggle-${i}){display:none}::view-transition-new(live-toggle-${i}){animation:none}`;
   }).join("");
   document.head.append(css);
-  const t = (swapping = document.startViewTransition(change));
+  // 新外观如果用到还没载入的字体，等它载入完再开始淡化（最多等 0.4 秒），不然文字会先用别的字体画出来、淡到一半再跳一下
+  const t = (swapping = document.startViewTransition(async () => {
+    change();
+    void document.body.offsetHeight;
+    await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 400))]);
+  }));
   t.finished.finally(() => {
     live.forEach((el) => (el.style.viewTransitionName = ""));
     css.remove();
@@ -196,6 +205,11 @@ async function boot() {
   }
   if (app.info.display_reverted) toast("上次的画面设置（渲染方式 / 显卡）没能正常打开程序，已自动换回「自动」。", 7000);
   if (app.info.render_trial) confirmRender();
+  // 内置的四套字体提前载入。朱橙用衬线体、简约白用无衬线体，不提前载入的话，
+  // 每次打开程序后第一次换主题（或第一次遇到日语词）时字体才开始读，文字会先用系统字体画一下再换过来，看起来像闪了一下
+  setTimeout(() => {
+    for (const f of ['700 1em "Shici Serif"', '700 1em "Shici Serif JP"', '500 1em "Shici Sans"', '500 1em "Shici Mono"']) document.fonts.load(f, "词あa").catch(() => {});
+  }, 1200);
   // 自动检查更新：启动几秒后在后台问一次，有新版本才提示
   if (app.settings?.update_check) setTimeout(() => import("./update.js").then((m) => m.checkUpdate(false)), 4000);
 }

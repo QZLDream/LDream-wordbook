@@ -41,7 +41,7 @@
   --panel: #FFFFFF; --on-panel: #1D1D1F; --on-panel-mute: #6E6E73; --panel-line: rgba(0, 0, 0, .08); --panel-accent: #0071E3;
   --accent-fill: var(--accent);
   --shadow: 0 1px 1px rgba(0, 0, 0, .03), 0 14px 34px -14px rgba(60, 72, 88, .2);
-  --float: drop-shadow(0 26px 44px rgba(60, 72, 88, .16)) drop-shadow(0 2px 6px rgba(60, 72, 88, .06));
+  --float: 0 26px 44px rgba(60, 72, 88, .16), 0 2px 6px rgba(60, 72, 88, .06);
   --bg: linear-gradient(158deg, #FAFBFC 0%, #EEF0F3 48%, #E1E5EA 100%);
   --sheet: linear-gradient(150deg, #FFFFFF 0%, #F5F7F9 100%);
   --switch-on: var(--accent);
@@ -55,7 +55,7 @@
   --line: rgba(255, 255, 255, .08); --line-2: rgba(255, 255, 255, .18); --dot: transparent;
   --panel: #1C1C1E; --on-panel: #F5F5F7; --on-panel-mute: #98989D; --panel-line: rgba(255, 255, 255, .1); --panel-accent: #2997FF;
   --shadow: 0 1px 0 rgba(255, 255, 255, .04) inset, 0 16px 36px -16px rgba(0, 0, 0, .8);
-  --float: drop-shadow(0 26px 44px rgba(0, 0, 0, .5));
+  --float: 0 26px 44px rgba(0, 0, 0, .5);
   --bg: linear-gradient(158deg, #121214 0%, #0B0B0D 60%, #050506 100%);
   --sheet: linear-gradient(150deg, #222224 0%, #1A1A1C 100%);
   --switch-on: #F5F5F7; /* 开关在深底上用白色，蓝色对比度不够 */
@@ -500,7 +500,7 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 @media (max-width: 1240px) { .brand-sub { display: none; } }
 
 /* ================= 简约白：圆角、柔和阴影、无衬线，大面积留白 ================= */
-[data-palette="silver"] body { background-image: var(--bg); background-size: auto; background-attachment: fixed; }
+[data-palette="silver"] body { background-image: var(--bg); background-size: auto; }
 [data-palette="silver"] .nav { background: color-mix(in srgb, var(--card) 94%, transparent); }
 [data-palette="silver"] .brand-mark { font-weight: 700; letter-spacing: .02em; }
 [data-palette="silver"] .tab-ink { border-radius: 2px; }
@@ -540,16 +540,19 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 [data-palette="silver"] .rule.red { border-radius: 2px; }
 
 /* 首页右侧：斜切的深色块换成一张浮起的白色圆角卡片 */
-[data-palette="silver"] .home-dark, [data-palette="silver"] .rv-side { filter: var(--float); }
+/* 卡片的投影用 box-shadow 画在卡片自己身上。
+   以前是给整个右半边容器加 filter: drop-shadow：那样浏览器每画一帧（哪怕只是鼠标划过导航栏）都要把半个窗口重新做一遍大半径模糊，
+   合成一帧的开销是朱橙主题的 5 倍左右，显卡一忙（比如开着动态壁纸）就容易赶不上、整窗空白闪一下。box-shadow 只在卡片出现时画一次。 */
 [data-palette="silver"] .slash { display: none; }
-[data-palette="silver"] .home-dark .slab { inset: 30px clamp(18px, 2.2vw, 30px) 30px 6px; background: var(--sheet); clip-path: inset(0 round 34px); animation: sheet-in 1.1s var(--ease) both; }
+[data-palette="silver"] .home-dark .slab { inset: 30px clamp(18px, 2.2vw, 30px) 30px 6px; background: var(--sheet); clip-path: none; border-radius: 34px; box-shadow: var(--float); animation: sheet-in 1.1s var(--ease) both; }
 @keyframes sheet-in { from { opacity: 0; transform: translate3d(46px, 0, 0) scale(.985); } }
 [data-palette="silver"] .home-dark .inner { inset: 0; padding: clamp(30px, 6vh, 60px) clamp(30px, 3.4vw, 52px) clamp(26px, 4vh, 44px); }
 /* 复习页右侧：同样是圆角卡片，从右边展开 */
-[data-palette="silver"] .rv-side .slab { background: var(--sheet); clip-path: inset(14px 26px 26px 100% round 30px); }
-[data-palette="silver"] .rv-stage.revealed .rv-side .slab { clip-path: inset(14px 26px 26px 10px round 30px); }
-[data-palette="silver"] .rv-stage.out .rv-side .slab { clip-path: inset(14px 26px 26px 100% round 30px); }
-[data-palette="silver"] .rv-side .inner { padding: clamp(34px, 7vh, 70px) 62px 56px 50px; }
+/* 展开用矩形裁剪（上下左右留出投影的位置）；收起时裁剪区宽度为 0，卡片和投影都看不见 */
+[data-palette="silver"] .rv-side .slab { inset: 14px 26px 26px 10px; background: var(--sheet); border-radius: 30px; box-shadow: var(--float); clip-path: inset(-50px 0 -90px 100%); }
+[data-palette="silver"] .rv-stage.revealed .rv-side .slab { clip-path: inset(-50px -60px -90px -60px); }
+[data-palette="silver"] .rv-stage.out .rv-side .slab { clip-path: inset(-50px 0 -90px 100%); }
+[data-palette="silver"] .rv-side .inner { padding: calc(clamp(34px, 7vh, 70px) - 14px) 36px 30px 40px; }
 [data-palette="silver"] .rate .iv, [data-palette="silver"] .def .pos, [data-palette="silver"] .word-row .due, [data-palette="silver"] .book .m, [data-palette="silver"] .book .t small,
 [data-palette="silver"] .set-row .val, [data-palette="silver"] .chart svg text, [data-palette="silver"] .tip, [data-palette="silver"] .path { font-family: var(--sans); font-feature-settings: "tnum"; letter-spacing: .01em; }
 [data-palette="silver"] .def .pos { font-weight: 600; }
@@ -629,7 +632,13 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 
 /* 换主题 / 明暗时整屏交叉淡化（见 app.js 的 swapLook） */
 html.look-swap *:not(.toggle), html.look-swap *:not(.toggle)::before, html.look-swap *:not(.toggle)::after { transition: none !important; }
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: .5s; animation-timing-function: cubic-bezier(.4, 0, .2, 1); }
+/* 旧画面垫在下面不动，新画面在它上面淡入：两张都是不透明的整屏画面，看起来和交叉淡化一样，
+   但不用浏览器默认的“两张图各自变透明再用 plus-lighter 混合”，每帧少画几遍整屏，显卡负担小很多 */
+::view-transition-image-pair(root) { isolation: auto; }
+::view-transition-old(root) { animation: none; mix-blend-mode: normal; }
+/* 注意要整个换掉 animation：浏览器默认的动画里还带着一个把混合模式改成 plus-lighter 的动画，只改 mix-blend-mode 盖不掉它 */
+::view-transition-new(root) { mix-blend-mode: normal; animation: look-in .5s cubic-bezier(.4, 0, .2, 1) both; }
+@keyframes look-in { from { opacity: 0; } }
 
 /* 机翻译文的小标记 */
 .mt-tag { display: inline-block; margin-left: 8px; padding: 1px 6px 2px; border-radius: 6px; font: 600 11px/1.4 var(--sans); letter-spacing: .04em;
@@ -643,3 +652,8 @@ html.look-swap *:not(.toggle), html.look-swap *:not(.toggle)::before, html.look-
 [data-quiet-focus]:focus-visible { outline: none; }
 /* 链接、图片不能拖出去 */
 a, img, svg { -webkit-user-drag: none; }
+
+/* 界面文字默认不能用鼠标拖选（拖一下就选中一大片）；输入框，以及单词详情里的单词、释义、例句等需要复制的内容仍然可以选 */
+body { -webkit-user-select: none; user-select: none; }
+input, textarea, [contenteditable], .keybox, .update-notes, .path,
+.drawer .term, .drawer .def, .drawer .ex, .drawer .note-box { -webkit-user-select: text; user-select: text; }

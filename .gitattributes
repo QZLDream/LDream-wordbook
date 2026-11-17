@@ -1,0 +1,14 @@
+# 批处理文件在 Windows 上必须是 CRLF 换行，否则 cmd 会找不到 goto / call 的标签，start.bat 跑到一半就出错
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# 二进制文件原样保存，不做任何换行转换
+*.db    binary
+*.exe   binary
+*.woff2 binary
+*.ttf   binary
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.mp3   binary
+*.onnx  binary
