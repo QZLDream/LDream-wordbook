@@ -29,6 +29,7 @@ const EVENTS = {
 
 export function configure(s) {
   state.on = !!s.sfx;
+  state.haptic = !!s.haptic && !!window.ShiciAndroid?.vibrate;
   state.set = SETS[s.sfx_set] ? s.sfx_set : "wood";
   state.vol = Math.max(0, Math.min(1, (s.sfx_volume ?? 60) / 100));
   if (master) master.gain.value = state.vol;
@@ -74,7 +75,13 @@ export function schedule(c, out, event, set, t0) {
 }
 
 let preview = null; // 当前试听声音的音量节点
+// 震动反馈（安卓版）：用手机的震动马达，和声音分开开关。不同操作震感不同（见 MainActivity.vibrate）
+export function buzz(event) {
+  try { window.ShiciAndroid.vibrate(event); } catch { /* 旧版外壳没有这个方法 */ }
+}
+
 export function play(event, { set, force } = {}) {
+  if (state.haptic && !force) buzz(event);
   if (!state.on && !force) return;
   try {
     if (!ctx) {
@@ -99,8 +106,8 @@ export function play(event, { set, force } = {}) {
 
 // 普通按钮、标签、开关的点击音。评分、翻牌等有自己声音的元素标了 data-sfx="none"。
 document.addEventListener("pointerdown", (e) => {
-  if (!state.on) return;
-  const el = e.target.closest?.("button, a, .book, [role=switch], .drop");
+  if (!state.on && !state.haptic) return;
+  const el = e.target.closest?.("button, a, .book, .book-pick, [role=switch], .drop");
   if (!el || el.disabled || el.closest("[data-sfx=none]")) return;
   play(el.matches("[role=switch]") ? "toggle" : "tap");
 }, true);

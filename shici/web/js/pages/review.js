@@ -121,10 +121,13 @@ export async function mount(root, query) {
             h("div", {}, h("span", { class: "label", text: "遗忘" }), h("span", { class: "num", text: `${card.lapses} 次` })),
             h("div", {}, h("span", { class: "label", text: "认识后下次" }), h("span", { class: "num", text: iv["3"] }))))),
         h("div", { class: "slash" })),
-      h("div", { class: "rv-actions", "data-sfx": "none" }, RATES.map((x, i) =>
-        h("button", { class: `rate ${x.cls}`, "data-r": x.r, style: { "--i": i }, onclick: () => rate(x.r) },
+      h("div", { class: "rv-actions", "data-sfx": "none" }, RATES.map((x, i) => {
+        const btn = h("button", { class: `rate ${x.cls}`, "data-r": x.r, style: { "--i": i }, onclick: () => { if (btn._skip) { btn._skip = false; return; } rate(x.r); } },
           h("span", { class: "top" }, h("span", { class: "name", text: x.name }), h("kbd", { text: x.r })),
-          h("span", { class: "iv", text: iv[String(x.r)] + "后" })))),
+          h("span", { class: "iv", text: iv[String(x.r)] + "后" }));
+        if (x.r === 3) holdEasy(btn, iv);
+        return btn;
+      })),
       h("button", { class: "rv-easy", "data-sfx": "none", onclick: () => rate(4) }, "太简单了", h("kbd", { text: "4" }), `直接安排到 ${iv["4"]}后`));
     stage._word = word;
     stage._note = note;
@@ -138,8 +141,10 @@ export async function mount(root, query) {
     const stage = S.stage, word = stage._word, term = $(".term", word);
     const a = word.getBoundingClientRect(), aw = term.getBoundingClientRect().width;
     stage.classList.add("revealed");
+    stage.scrollTop = 0;
     const b = word.getBoundingClientRect(), bw = term.getBoundingClientRect().width;
-    if (!reduced() && bw > 0) {
+    // 手机上不做这个滑动：单词还在半路时释义已经出现，两者会叠在一起。手机改成整张答案从下往上浮现（phone.css）
+    if (!reduced() && bw > 0 && !matchMedia("(max-width: 720px)").matches) {
       // 单词从屏幕中央滑到左上角：先量出前后位置，再用 transform 补间
       word.animate([{ transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${aw / bw})` }, { transform: "none" }],
         { duration: 820, easing: EASE });
@@ -148,6 +153,31 @@ export async function mount(root, query) {
   }
 
   // ---------------------------------------------------------------- 评分
+  // 长按“认识”：按钮变成“熟识”（显示更长的间隔），松手就按“太简单了”记（评分 4）；按住时手指移开就取消
+  function holdEasy(btn, iv) {
+    let t = 0, held = false, done = false;
+    const name = btn.querySelector(".name"), ivEl = btn.querySelector(".iv");
+    const reset = () => {
+      clearTimeout(t); t = 0;
+      if (!held || done) return;
+      held = false; btn.classList.remove("hold"); name.textContent = "认识"; ivEl.textContent = iv["3"] + "后";
+    };
+    btn.addEventListener("pointerdown", () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        held = true; btn.classList.add("hold"); name.textContent = "熟识"; ivEl.textContent = iv["4"] + "后";
+        if (app.settings.haptic) try { window.ShiciAndroid?.vibrate("easy"); } catch { /* 旧版外壳 */ }
+      }, 420);
+    });
+    btn.addEventListener("pointerup", () => {
+      clearTimeout(t);
+      if (held && !done) { done = true; btn._skip = true; rate(4); }
+    });
+    btn.addEventListener("pointerleave", reset);
+    btn.addEventListener("pointercancel", reset);
+    btn.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
   async function rate(r) {
     if (S.busy || !S.card || (!S.revealed && !S.spell)) return;
     S.busy = true;
@@ -260,11 +290,12 @@ export async function mount(root, query) {
       sub = "可以去词库加一本词书，或者做一组自由拼写练习。";
     }
     const stat = (name, val, suffix = "") => { const el = h("span", { class: "num", text: "0" }); countUp(el, val, { fmt: (v) => Math.round(v) + suffix }); return h("div", {}, h("span", { class: "label", text: name }), el); };
-    const stage = h("div", { class: "rv-stage" }, h("div", { class: "done" },
+    // 文字包一层：手机上让两个按钮正好落在屏幕中间（文字在按钮上方），电脑版布局不变
+    const stage = h("div", { class: "rv-stage" }, h("div", { class: "done" }, h("div", { class: "done-text" },
       h("span", { class: "label rise", html: "<b>01</b> / DONE<span class=\"sep\">·</span>完成" }),
       h("h1", { class: "display rise", style: { "--i": 1 } }, title),
       h("p", { class: "home-sub rise", style: { "--i": 2 }, text: sub }),
-      n ? h("div", { class: "done-stats rise", style: { "--i": 3 } }, stat("本次", n, " 次"), stat("用时", mins, " 分"), stat("记住", Math.round((S.session.right / n) * 100), "%")) : h("div", { style: { height: "36px" } }),
+      n ? h("div", { class: "done-stats rise", style: { "--i": 3 } }, stat("本次", n, " 次"), stat("用时", mins, " 分"), stat("记住", Math.round((S.session.right / n) * 100), "%")) : h("div", { class: "done-gap", style: { height: "36px" } })),
       h("div", { class: "home-cta rise", style: { "--i": 4 } },
         h("a", { class: "btn", href: "#/home" }, "回到今日", h("span", { class: "arr", text: "→" })),
         mode === "practice" ? (n ? h("button", { class: "btn ghost", onclick: () => restartPractice() }, "再练一组") : null)

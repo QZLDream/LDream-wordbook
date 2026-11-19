@@ -1,0 +1,93 @@
+plugins {
+    id 'com.android.application'
+    id 'com.chaquo.python'
+}
+
+// 版本号跟电脑版一致：从 shici/__init__.py 里读
+def pyInit = file("../../shici/__init__.py").text
+def appVersion = (pyInit =~ /__version__ = "([^"]+)"/)[0][1]
+def parts = appVersion.tokenize('.').collect { it as int }
+
+// 发布用的签名：keystore.properties 不进仓库（见 android/README.md）
+def ksFile = rootProject.file("keystore.properties")
+def ks = new Properties()
+if (ksFile.exists()) ks.load(new FileInputStream(ksFile))
+
+android {
+    namespace 'com.ldream.wordbook'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.ldream.wordbook'
+        minSdk 24
+        targetSdk 35
+        versionCode parts[0] * 10000 + parts[1] * 100 + parts[2]
+        versionName appVersion
+        ndk { abiFilters 'arm64-v8a' }
+    }
+
+    signingConfigs {
+        release {
+            if (ksFile.exists()) {
+                storeFile rootProject.file(ks['storeFile'])
+                storePassword ks['storePassword']
+                keyAlias ks['keyAlias']
+                keyPassword ks['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (ksFile.exists()) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // 词典数据库已经是压缩过的 SQLite，再压缩意义不大，还拖慢首次解压
+    androidResources { noCompress += ['db'] }
+}
+
+// 把电脑版的 Python 代码（界面、词典、复习算法）原样拿来用：编译前同步到 build/pysrc
+def pySrc = layout.buildDirectory.dir("pysrc")
+tasks.register('syncShici', Sync) {
+    from("../../shici") {
+        exclude '__pycache__/**', '**/*.pyc', 'desktop.py', '__main__.py'
+        into 'shici'
+    }
+    from("src/main/python")
+    into pySrc
+}
+tasks.named('preBuild') { dependsOn 'syncShici' }
+tasks.matching { it.name.startsWith('merge') && it.name.endsWith('PythonSources') }.configureEach { dependsOn 'syncShici' }
+
+chaquopy {
+    defaultConfig {
+        version "3.12"
+        def bp = System.getenv("CHAQUOPY_BUILD_PYTHON")
+        if (bp) buildPython bp
+        pip {
+            install "fsrs>=6.1,<7"
+            install "openpyxl>=3.1"
+        }
+        // 词典是 SQLite 文件，要有真实路径才能打开：第一次启动时把整个 shici 包解压到手机里
+        extractPackages "shici"
+    }
+    sourceSets {
+        main {
+            setSrcDirs([pySrc.get().asFile.path])
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+    implementation 'androidx.activity:activity:1.9.3'
+}

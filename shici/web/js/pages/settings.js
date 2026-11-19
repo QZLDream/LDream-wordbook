@@ -7,6 +7,7 @@ import { family } from "../fonts.js";
 import { openLink, openNetdisk, checkUpdate } from "../update.js";
 
 export async function mount(root) {
+  const android = !!app.info.android;
   const s = { ...app.settings };
   const syncs = [];   // 设置在别处被改动（比如导航栏的暗色开关）时，刷新这里的控件
   const set = async (patch, quiet) => {
@@ -95,7 +96,7 @@ export async function mount(root) {
       row("标题和单词", "首页大标题、复习时的单词、各页标题。", fontSelect("font_title")),
       row("正文", "释义、例句、按钮和说明文字。", fontSelect("font_body")),
       row("导入字体", "支持 .ttf  .otf  .woff  .woff2。导入的字体会出现在上面两个列表里，文件存在数据文件夹的 fonts 里。" +
-        (app.info.desktop ? "" : "（在浏览器里打开时看不到系统字体，可以导入字体文件。）"), act("导入字体文件…", () => fileInput.click())),
+        (app.info.desktop ? "" : android ? "（手机上的系统字体程序用不了，想换字体可以导入字体文件。）" : "（在浏览器里打开时看不到系统字体，可以导入字体文件。）"), act("导入字体文件…", () => fileInput.click())),
       fontData.user.length ? h("div", { class: "font-list" }, fontData.user.map((f) => h("div", { class: "font-item" },
         h("span", { class: "fname", style: { "font-family": `"ShiciUser-${f.id}", var(--sans)` }, text: f.name }),
         h("span", { class: "fmeta", text: `${f.format.toUpperCase()} · ${(f.size / 1048576).toFixed(1)} MB` }),
@@ -126,7 +127,7 @@ export async function mount(root) {
       row("一天从几点开始", "熬夜到凌晨时，这个时间之前都算作前一天。", slider("day_start", 0, 8, 1, (v) => `${Math.round(v)}:00`))),
     group(2, "VOICE · 发音",
       row("自动朗读", "单词出现时自动读一遍。关掉后，显示答案时才读。", flag("autoplay", "自动朗读")),
-      row("发音来源", "内置语音：程序自带的合成语音，词书里的英语和日语单词都有，不用联网，也不用给系统装语音包。在线真人：有道词典的发音，听过一次就存在本机。系统语音：Windows 自带的朗读，需要装了对应语言的语音。选中的来源没有某个词时，会自动换下一种。",
+      row("发音来源", "内置语音：程序自带的合成语音，词书里的英语和日语单词都有，不用联网，也不用给系统装语音包。在线真人：有道词典的发音，听过一次就存在本机。" + (android ? "系统语音：手机自带的文字转语音（TTS）。" : "系统语音：Windows 自带的朗读，需要装了对应语言的语音。") + "选中的来源没有某个词时，会自动换下一种。",
         seg("voice", [["builtin", "内置语音"], ["online", "在线真人"], ["system", "系统语音"]])),
       row("联网补充", "内置语音包里没有的词（比如自己加的生词）联网取一次发音并存下来，之后离线也能读。", flag("online_fallback", "联网补充")),
       row("在线发音口音", null, seg("accent", [["us", "美音"], ["uk", "英音"]])),
@@ -156,17 +157,19 @@ export async function mount(root) {
         row("当前使用", null, gpuName)] : []),
       ),
     group(3.5, "FONT · 字体", fontsBox),
-    group(4, "SOUND · 音效",
+    group(4, android ? "SOUND · 音效与震动" : "SOUND · 音效",
       row("按键音效", "显示答案、评分、点按钮时给一点声音反馈。", toggle(() => s.sfx, async (v) => { await set({ sfx: v }, true); if (v) sfx.play("good", { force: true }); }, "按键音效")),
-      sfxRows),
+      sfxRows,
+      android ? row("震动反馈", "显示答案、评分、点按钮时手机轻轻震一下，用的是手机的震动马达，和按键音效分开设置。忘记、认识、背完一组的震感各不相同。",
+        toggle(() => s.haptic, async (v) => { await set({ haptic: v }, true); if (v) sfx.buzz("good"); }, "震动反馈")) : null),
     group(5, "DATA · 数据",
       row("进度文件", "把学习进度存成一个文件（.xmdb）。换设备时把文件拷过去（U 盘、网盘、聊天软件都行），在新设备上导入就能接着背。两边都有进度时会合并，不会丢。",
         [act("导出进度文件", () => exportFile()), act("导入…", () => importProgress())]),
       row("进度密钥", "不方便传文件时，也可以把进度变成一串文字复制过去（学得越多越长）。", act("生成密钥", () => exportKey())),
-      row("数据位置", null, h("span", { class: "path", text: app.info.data_dir || "" })),
-      row("打开数据文件夹", "学习记录都在这个文件夹的 user.db 里，复制它也是完整备份。", act("打开文件夹", async () => {
+      android ? [] : row("数据位置", null, h("span", { class: "path", text: app.info.data_dir || "" })),
+      android ? [] : row("打开数据文件夹", "学习记录都在这个文件夹的 user.db 里，复制它也是完整备份。", act("打开文件夹", async () => {
         try { const r = await api("open_data_dir"); if (!r.opened) { await copyText(r.path); toast("路径已复制：" + r.path, 5000); } } catch (e) { fail(e); } })),
-      row("备份", "在数据文件夹的 backups 里存一份当前的学习记录。", act("立即备份", async () => { try { toast("已备份到 " + (await api("backup")).path, 5000); } catch (e) { fail(e); } })),
+      row("备份", android ? "存一份当前的学习记录到手机的“下载/小梦的词书”文件夹。" : "在数据文件夹的 backups 里存一份当前的学习记录。", act("立即备份", async () => { try { toast("已备份到 " + (await api("backup")).path, 5000); } catch (e) { fail(e); } })),
       row("导出", "把词库和学习进度导出成 CSV 表格（Excel 可以直接打开）。", act("导出 CSV", async () => { try { toast("已导出到 " + (await api("export")).path, 5000); } catch (e) { fail(e); } })),
       row("清空学习记录", "词库保留，所有学习进度归零。清空前会自动备份一次。", act("清空…", async () => {
         if (!(await ask("清空全部学习记录？", "所有单词都会回到“未学”，统计也会清零。清空前会自动备份，可以从备份文件恢复。", { ok: "清空", danger: true }))) return;
@@ -224,6 +227,11 @@ async function exportKey() {
 async function exportFile() {
   let r;
   try { r = await api("progress_export", { as_file: true }); } catch (e) { return fail(e); }
+  if (window.ShiciAndroid?.saveFile) {
+    // 安卓：存到“下载/小梦的词书”，再弹出分享（微信、QQ、网盘…），方便直接发到电脑上
+    const where = window.ShiciAndroid.saveFile(r.filename, r.data, "application/octet-stream", true);
+    return toast(where ? `进度文件已存到${where}` : "保存失败，可以改用进度密钥", 6000);
+  }
   const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
   const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
   const a = h("a", { href: url, download: r.filename, style: { display: "none" } });
@@ -239,7 +247,7 @@ function importProgress(mode = "file") {
   const box = h("textarea", { class: "keybox scroll", placeholder: "在这里粘贴进度密钥（以 XMCS1. 开头，Ctrl+V）", spellcheck: "false", "aria-label": "粘贴进度密钥" });
   const picker = h("input", { type: "file", accept: ".xmdb,.txt", style: { display: "none" } });
   const drop = h("div", { class: "drop", tabindex: 0, onclick: () => picker.click(), onkeydown: (e) => e.key === "Enter" && picker.click() },
-    h("span", { html: icons.upload }), h("b", { text: "点击选择进度文件，或把文件拖到这里" }), h("span", { class: "small mute", text: "小梦的词书-进度-….xmdb" }));
+    h("span", { html: icons.upload }), h("b", { text: app.info.android ? "点击选择进度文件" : "点击选择进度文件，或把文件拖到这里" }), h("span", { class: "small mute", text: "小梦的词书-进度-….xmdb" }));
   let payload = null;  // {file} 或 {key}
   const readFile = async (f) => {
     if (!f) return;
@@ -263,7 +271,7 @@ function importProgress(mode = "file") {
   const start = () => {
     payload = null;
     fill(input, mode === "file" ? [drop, picker] : box);
-    fill(drop, h("span", { html: icons.upload }), h("b", { text: "点击选择进度文件，或把文件拖到这里" }), h("span", { class: "small mute", text: "小梦的词书-进度-….xmdb" }));
+    fill(drop, h("span", { html: icons.upload }), h("b", { text: app.info.android ? "点击选择进度文件" : "点击选择进度文件，或把文件拖到这里" }), h("span", { class: "small mute", text: "小梦的词书-进度-….xmdb" }));
     fill(info);
     fill(foot, switchLink(), mode === "key" ? h("button", { class: "btn sm", onclick: () => { payload = { key: box.value }; inspect(); } }, "识别密钥") : null);
     if (mode === "key") setTimeout(() => box.focus(), 50);

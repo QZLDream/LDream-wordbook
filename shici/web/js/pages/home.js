@@ -36,7 +36,9 @@ export async function mount(root) {
   }
 
   const q = (name, n, i) => { const el = h("span", { class: "num", text: "0" }); countUp(el, n); return h("div", { class: "rise", style: { "--i": i } }, h("span", { class: "label", text: name }), el); };
-  const strip = (name, text) => h("div", {}, h("span", { class: "label", text: name }), h("span", { class: "num", text }));
+  // 名称里“ · 30 天”这类补充说明手机上放不下，单独包一层（phone.css 里隐藏）
+  const strip = (name, text) => { const [main, more] = name.split(" · ");
+    return h("div", {}, h("span", { class: "label" }, main, more ? h("span", { class: "more", text: " · " + more }) : null), h("span", { class: "num", text })); };
   const streakEl = h("span", { text: "0" });
 
   root.append(h("div", { class: "home" },
@@ -62,6 +64,11 @@ export async function mount(root) {
       h("div", { class: "slash" }),
     ),
   ));
+  // 手机上把四个数字放进下面那张“连续学习”卡片里，合成一张
+  if (matchMedia("(max-width: 720px)").matches) {
+    root.querySelector(".home-dark .inner").append(root.querySelector(".home-strip"));
+    root.querySelector(".home").append(root.querySelector(".home-cta"));  // 两个按钮放到最下面（卡片下方）
+  }
   countUp(numEl, c.total);
   countUp(streakEl, d.streak, { fmt: (v) => String(Math.round(v)).padStart(2, "0") });
   app.keyHandler = (e, typing) => {

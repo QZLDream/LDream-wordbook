@@ -22,6 +22,23 @@ export async function mount(root) {
   ro.observe(wordsEl);
   const titleEl = h("h2", { class: "h2", text: "全部单词" });
   const countEl = h("span", { class: "label" });
+  // 手机上词书列表放不下：顶部放一张“当前词书”卡片，点开后从底部弹出完整的词书列表（就是电脑版左栏那份）
+  const phone = () => matchMedia("(max-width: 720px)").matches;
+  const pickTitle = h("b", { class: "pick-t", text: "全部单词" }), pickMeta = h("span", { class: "pick-m" });
+  const pickEl = h("button", { class: "book-pick rise", style: { "--i": 1 }, onclick: () => openPicker() },
+    h("span", { class: "pick-txt" }, h("span", { class: "label", text: "BOOK · 当前词书" }), pickTitle, pickMeta),
+    h("span", { class: "pick-go" }, "切换", h("i", { html: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>' })));
+  let sheet = null;
+  function openPicker() {
+    const home = booksEl.parentNode;
+    sheet = openLayer("sheet", (close) => [
+      h("div", { class: "sheet-head" }, h("i", { class: "grab" }),
+        h("div", {}, h("span", { class: "label", text: "BOOKS · 词书" }), h("h3", { class: "h2", text: "选择词书" })),
+        h("button", { class: "icon-btn", "aria-label": "关闭", html: icons.close, onclick: close })),
+      h("p", { class: "sheet-tip", text: "点一本词书查看它的单词；点右边的按钮加入或移出学习计划。" }),
+      h("div", { class: "sheet-body scroll" }, booksEl),
+    ], { onClose: () => { home.append(booksEl); sheet = null; } });
+  }
   // 筛选标签可以同时选几个（比如“未学 + 学习中”）；点“全部”清空
   const chips = h("div", { class: "chips" }, FILTERS.map(([k, t]) => h("button", { class: "chip" + (k === "all" ? " on" : ""), "data-f": k, text: t,
     onclick: () => {
@@ -29,8 +46,48 @@ export async function mount(root) {
       [...chips.children].forEach((c) => c.classList.toggle("on", c.dataset.f === "all" ? !S.filters.size : S.filters.has(c.dataset.f)));
       loadWords(true);
     } })));
+  // 手机上：上面那排标签太挤还要横着滑，换成排序右边的一个下拉菜单（可以多选，和标签是同一套逻辑）
+  const fLabel = h("span");
+  const fItems = FILTERS.map(([k, t]) => h("button", { class: "fitem", "data-f": k, onclick: (e) => {
+    e.stopPropagation();
+    chips.querySelector(`[data-f="${k}"]`).click();
+    if (k === "all") closeMenu();
+  } }, h("span", { text: t }), h("i", { class: "tick" })));
+  const fMenu = h("div", { class: "fmenu", role: "menu" }, fItems);
+  const syncFilter = () => {
+    const on = FILTERS.filter(([k]) => S.filters.has(k));
+    fLabel.textContent = !on.length ? "全部状态" : on.length === 1 ? on[0][1] : `${on[0][1]} 等 ${on.length} 项`;
+    fItems.forEach((b) => b.classList.toggle("on", b.dataset.f === "all" ? !on.length : S.filters.has(b.dataset.f)));
+    fBtn.classList.toggle("active", !!on.length);
+  };
+  const closeMenu = () => { fWrap.classList.remove("open"); document.removeEventListener("pointerdown", outside, true); };
+  const outside = (e) => { if (!fWrap.contains(e.target)) closeMenu(); };
+  const fBtn = h("button", { class: "fbtn", "aria-haspopup": "menu", onclick: () => {
+    if (fWrap.classList.contains("open")) return closeMenu();
+    // 下面放不下（离底部标签栏太近）就往上展开
+    const r = fBtn.getBoundingClientRect(), tabs = document.querySelector("#tabs")?.getBoundingClientRect().top ?? innerHeight;
+    fWrap.classList.toggle("up", r.bottom + fMenu.offsetHeight + 70 > tabs);
+    fWrap.classList.add("open");
+    document.addEventListener("pointerdown", outside, true);
+  } }, fLabel, h("i", { html: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>' }));
+  const fWrap = h("div", { class: "fwrap" }, fBtn, fMenu);
+  chips.addEventListener("click", () => syncFilter());
+  syncFilter();
   const search = h("input", { class: "field", type: "search", placeholder: "搜索单词", "aria-label": "搜索单词" });
   search.addEventListener("input", debounce(() => { S.q = search.value; loadWords(true); }));
+  // 搜索范围（手机版显示在搜索框右边）：在所有词里搜，还是只在当前选的词书里搜。电脑版不显示，保持只搜当前词书
+  S.scope = phone() ? "all" : "book";
+  const scopeSeg = h("div", { class: "sscope", role: "group", "aria-label": "搜索范围" }, [["all", "全部"], ["book", "本书"]].map(([k, t]) =>
+    h("button", { "data-k": k, class: S.scope === k ? "on" : "", text: t, title: k === "all" ? "在所有词里搜索" : "只在当前词书里搜索", onclick: () => {
+      S.scope = k; [...scopeSeg.children].forEach((b) => b.classList.toggle("on", b.dataset.k === k));
+      search.placeholder = k === "all" ? "在全部单词里搜索" : "在当前词书里搜索";
+      if (S.q) loadWords(true);
+    } })));
+  const searchBox = h("div", { class: "search" }, h("span", { html: icons.search }), search, scopeSeg);
+  const syncScope = () => {
+    searchBox.classList.toggle("scoped", S.source !== null);  // 选的是“全部单词”时两种范围一样，不显示切换
+    search.placeholder = S.source === null ? "搜索单词" : S.scope === "all" ? "在全部单词里搜索" : "在当前词书里搜索";
+  };
   const sortSeg = h("div", { class: "seg" }, [["due", "到期"], ["term", "字母"], ["added", "最近添加"]].map(([k, t]) =>
     h("button", { class: k === "due" ? "on" : "", text: t, onclick: (e) => { S.sort = k; [...sortSeg.children].forEach((b) => b.classList.toggle("on", b === e.target)); loadWords(true); } })));
 
@@ -38,7 +95,7 @@ export async function mount(root) {
   const multiBtn = h("button", { class: "chip multi", title: "勾选多个词一起操作（按住 Shift 点击可以连选）", onclick: () => setSelecting(!S.selecting) }, h("i"), h("span", { text: "多选" }));
   const cntEl = h("b", { text: "0" });
   const bulkBtns = {};
-  const bulkBtn = (key, text, cls) => (bulkBtns[key] = h("button", { class: cls || "", text, onclick: () => bulk(key) }));
+  const bulkBtn = (key, text, cls) => (bulkBtns[key] = h("button", { class: cls || "", "data-k": key, text, onclick: () => bulk(key) }));
   const allBtn = h("button", { text: "全选", onclick: () => selectAll() });
   const bulkbar = h("div", { class: "bulkbar", "data-sfx": "bar" },
     h("span", { class: "cnt" }, "已选", cntEl, "个"), allBtn, h("span", { class: "sepv" }),
@@ -47,16 +104,19 @@ export async function mount(root) {
   let mainEl;
   function setSelecting(on) {
     S.selecting = on; S.last = -1;
+    app.backHook = on ? () => setSelecting(false) : null;  // 安卓返回键先退出多选
     if (!on) S.sel.clear();
     mainEl.classList.toggle("selecting", on);
+    mainEl.parentElement.classList.toggle("selecting", on);
     multiBtn.classList.toggle("on", on);
     multiBtn.lastChild.textContent = on ? "退出多选" : "多选";
     paintSel();
   }
   function paintSel() {
-    cntEl.textContent = S.sel.size.toLocaleString("en-US");
+    if (S.selecting) cntEl.textContent = S.sel.size.toLocaleString("en-US");  // 退出多选时不把数字改成 0（栏正在淡出）
     for (const b of Object.values(bulkBtns)) b.disabled = !S.sel.size;
-    allBtn.textContent = S.total && S.sel.size >= S.total ? "全不选" : `全选 ${S.total.toLocaleString("en-US")} 个`;
+    const allOn = S.total && S.sel.size >= S.total;
+    allBtn.textContent = allOn ? "全不选" : phone() ? "全选" : `全选 ${S.total.toLocaleString("en-US")} 个`;  // 手机上不写个数，一排放得下
     for (const r of wordsEl.querySelectorAll(".word-row")) r.classList.toggle("picked", S.sel.has(+r.dataset.id));
   }
   function pick(row, e) {
@@ -68,6 +128,25 @@ export async function mount(root) {
     S.last = i;
     paintSel();
   }
+  // 长按一个词：进入多选并选中它（手机上没有“多选”按钮，靠长按；电脑上也能用）
+  let holdT = 0, holdXY = null;
+  const cancelHold = () => { clearTimeout(holdT); holdT = 0; };
+  wordsEl.addEventListener("pointerdown", (e) => {
+    const row = e.target.closest(".word-row");
+    S.held = false;  // 长按后手机有时不再触发 click，下一次按下时清掉标记，免得吞掉下一次点击
+    if (!row || e.button > 0) return;
+    holdXY = [e.clientX, e.clientY];
+    cancelHold();
+    holdT = setTimeout(() => {
+      holdT = 0; S.held = true;
+      if (!S.selecting) setSelecting(true);
+      if (!S.sel.has(+row.dataset.id)) pick(row, {});
+      if (app.settings.haptic) try { window.ShiciAndroid?.vibrate("hard"); } catch { /* 旧版外壳 */ }
+    }, 460);
+  });
+  wordsEl.addEventListener("pointermove", (e) => { if (holdT && Math.hypot(e.clientX - holdXY[0], e.clientY - holdXY[1]) > 8) cancelHold(); });
+  for (const t of ["pointerup", "pointercancel", "pointerleave"]) wordsEl.addEventListener(t, cancelHold);
+  wordsEl.addEventListener("contextmenu", (e) => { if (e.target.closest(".word-row")) e.preventDefault(); });
   async function selectAll() {
     try {
       if (S.total && S.sel.size >= S.total) S.sel.clear();
@@ -96,13 +175,22 @@ export async function mount(root) {
       h("div", { class: "acts rise", style: { "--i": 1 } },
         h("button", { class: "btn sm", onclick: () => addWordModal(reload) }, "＋ 添加单词"),
         h("button", { class: "btn ghost sm", onclick: () => importModal(reload) }, "导入词表")),
-      booksEl),
+      pickEl, booksEl),
     h("div", { class: "lib-main" },
       h("div", { class: "lib-head rise", style: { "--i": 1 } }, h("div", {}, countEl, titleEl), multiBtn),
-      h("div", { class: "lib-tools rise", style: { "--i": 2 } }, h("div", { class: "search" }, h("span", { html: icons.search }), search), chips, sortSeg),
+      h("div", { class: "lib-tools rise", style: { "--i": 2 } }, searchBox, chips, sortSeg, fWrap),
       headEl,
       wordsEl, bulkbar)));
   mainEl = root.querySelector(".lib-main");
+  syncScope();
+  // 手机上搜索框放到最上面（标题下面、添加单词按钮上面）
+  if (phone()) {
+    root.querySelector(".lib-side > .rise").after(h("div", { class: "lib-search rise", style: { "--i": 1 } }, searchBox));
+    // 当前词书卡片、添加/导入按钮固定在最下面（单词列表在中间单独滚动）
+    const acts = root.querySelector(".lib-side .acts");
+    acts.classList.remove("rise"); pickEl.classList.remove("rise");
+    root.querySelector(".library").append(h("div", { class: "lib-dock rise", style: { "--i": 3 } }, pickEl, h("div", { class: "acts-wrap" }, acts, bulkbar)));  // 多选栏正好盖在两个按钮的位置上，大小一样
+  }
   app.keyHandler = (e, typing) => {
     if (!S.selecting) return false;
     if (e.key === "Escape") { setSelecting(false); return true; }
@@ -125,6 +213,11 @@ export async function mount(root) {
       return el;
     };
     const en = d.books.filter((b) => b.lang === "en"), ja = d.books.filter((b) => b.lang === "ja");
+    const cur = S.source === null ? null : [...d.lists.map((b) => [b.id, b]), ...d.books.map((b) => ["book:" + b.id, b])].find(([k]) => k === S.source)?.[1];
+    const inPlan = d.lists.length + d.books.filter((b) => b.enabled !== false).length;
+    pickTitle.textContent = cur ? cur.title : "全部单词";
+    pickMeta.textContent = !cur ? (inPlan ? `${inPlan} 本在学习计划中 · 共 ${d.lists.length + d.books.length} 本可选` : `还没有词书在计划中 · 共 ${d.books.length} 本可选`)
+      : cur.enabled === false ? `${cur.count.toLocaleString("en-US")} 词 · 未加入计划` : `已学 ${cur.learned} / ${cur.in_plan.toLocaleString("en-US")}`;
     fill(booksEl, 
       h("div", { class: "book" + (S.source === null ? " sel" : ""), onclick: () => select(null, "全部单词") }, h("div", { class: "t", text: "全部单词" }), h("div", { class: "m", text: "词库里的所有词" })),
       d.lists.length ? [h("h4", { class: "label", text: "我的词表" }), d.lists.map((b) => row(b, b.id, false))] : null,
@@ -163,7 +256,9 @@ export async function mount(root) {
   }
 
   function select(src, title) {
+    sheet?.close();
     S.source = src;
+    syncScope();
     titleEl.textContent = title;
     [...booksEl.querySelectorAll(".book")].forEach((el) => el.classList.remove("sel"));
     loadBooks();
@@ -172,11 +267,11 @@ export async function mount(root) {
 
   async function loadWords(reset) {
     if (reset) { S.offset = 0; wordsEl.scrollTop = 0; }
-    const d = await api("items", { q: S.q, filter: filterParam(), source: S.source, sort: S.sort, offset: S.offset, limit: PAGE });
+    const d = await api("items", { q: S.q, filter: filterParam(), source: S.q && S.scope === "all" ? null : S.source, sort: S.sort, offset: S.offset, limit: PAGE });
     S.total = d.total; S.now = Date.now() / 1000;
     countEl.textContent = `${d.total.toLocaleString("en-US")} WORDS`;
     const rows = d.items.map((it, i) => h("button", { class: "word-row rise" + (S.sel.has(it.id) ? " picked" : ""), "data-id": it.id,
-      style: { "--i": Math.min(i, 14), "--d": "0ms", "animation-duration": ".5s" }, onclick: (e) => (S.selecting ? pick(e.currentTarget, e) : detail(it.id)) },
+      style: { "--i": Math.min(i, 14), "--d": "0ms", "animation-duration": ".5s" }, onclick: (e) => { if (S.held) { S.held = false; return; } S.selecting ? pick(e.currentTarget, e) : detail(it.id); } },
       h("i", { class: "ck" }), h("span", { class: "w", lang: it.lang, text: it.term }), h("span", { class: "r", text: it.reading }), h("span", { class: "d", text: it.definition }),
       h("span", { class: "s" }, h("i", { class: "dot " + it.status }), STATUS[it.status]),
       h("span", { class: "due", text: it.status === "new" || it.status === "suspended" ? "—" : fmtDue(it.due, S.now) })));
@@ -185,7 +280,8 @@ export async function mount(root) {
     if (S.selecting) paintSel();
     if (!d.total) {
       fill(wordsEl, h("div", { class: "empty" }, h("p", { class: "h3", text: S.q || S.filters.size ? "没有符合条件的词" : "这里还没有词" }),
-        h("p", { text: S.q || S.filters.size ? "换个搜索词或筛选条件试试。" : "在左边把一本词书加入计划，或者添加、导入自己的词。" })));
+        h("p", { text: S.q || S.filters.size ? "换个搜索词或筛选条件试试。" : phone() ? "选一本词书加入学习计划，或者添加、导入自己的词。" : "在左边把一本词书加入计划，或者添加、导入自己的词。" }),
+        !S.q && !S.filters.size && phone() ? h("button", { class: "btn sm", style: { "margin-top": "18px" }, onclick: () => openPicker() }, "选择词书") : null));
     } else if (S.offset < d.total) {
       wordsEl.append(h("button", { class: "btn ghost sm more", onclick: () => loadWords(false) }, `再显示 ${Math.min(PAGE, d.total - S.offset)} 个`));
     }
@@ -329,7 +425,7 @@ function importModal(onDone) {
 
   function step1() {
     const drop = h("div", { class: "drop", tabindex: 0, onclick: () => file.click(), onkeydown: (e) => e.key === "Enter" && file.click() },
-      h("span", { html: icons.upload }), h("b", { text: "点击选择文件，或把文件拖到这里" }), h("span", { class: "small mute", text: "支持 .txt  .csv  .tsv  .xlsx" }));
+      h("span", { html: icons.upload }), h("b", { text: app.info.android ? "点击选择文件" : "点击选择文件，或把文件拖到这里" }), h("span", { class: "small mute", text: "支持 .txt  .csv  .tsv  .xlsx" }));
     drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
     drop.addEventListener("dragleave", () => drop.classList.remove("over"));
     drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); take(e.dataTransfer.files[0]); });

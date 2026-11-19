@@ -86,6 +86,7 @@ DEFAULTS = {
     "motion": "full",       # full / reduced
     "font_title": "",       # 标题和单词的字体："" 跟随配色 / builtin:serif / builtin:sans / system:<字体名> / user:<id>
     "font_body": "",        # 正文字体，取值同上
+    "haptic": False,        # 震动反馈（安卓版，默认关闭）
     "sfx": True,            # 按键音效（默认打开，木质）
     "sfx_set": "wood",      # wood 木质 / felt 毛毡 / stone 石子 / keys 键盘 / glass 玻璃
     "sfx_volume": 60,
@@ -144,6 +145,8 @@ class Core:
         self.voice_langs: set[str] | None = None  # 系统语音支持的语言；None = 还不知道
         self.opener = None   # 桌面外壳注入：opener(path) 在文件管理器里打开
         self.restarter = None      # 桌面外壳注入：restarter() 重启程序（换渲染方式后用）
+        self.android = False       # 安卓版外壳设置
+        self.file_saver = None     # 安卓版注入：file_saver(路径) 把导出的文件存到手机的“下载”文件夹，返回给人看的位置
         self.render_trial = False  # 桌面外壳设置：这次是不是刚换了渲染方式、等用户确认画面正常
         self.render_confirm = None # 桌面外壳注入：用户确认新的渲染方式没问题
         self.display_ok = None     # 桌面外壳注入：界面已经正常画出来（参数：网页用的显卡名）
@@ -694,7 +697,7 @@ class Core:
     def api_bootstrap(self, p: dict) -> dict:
         return {"app": APP_NAME, "version": __version__, "settings": self.settings, "data_dir": str(self.dir), "links": LINKS,
                 "desktop": self.speaker is not None,
-                "can_restart": self.restarter is not None, "platform": sys.platform, "render_trial": self.render_trial, "display_reverted": self.display_reverted, "voice_packs": self.voice.pack_langs(), "user_fonts": self.fonts.list()}
+                "can_restart": self.restarter is not None, "android": self.android, "platform": sys.platform, "render_trial": self.render_trial, "display_reverted": self.display_reverted, "voice_packs": self.voice.pack_langs(), "user_fonts": self.fonts.list()}
 
     # ------------------------------------------------------------ 字体
     def api_fonts(self, p: dict) -> dict:
@@ -882,7 +885,16 @@ class Core:
         dst = sqlite3.connect(path)
         self.db.backup(dst)
         dst.close()
-        return {"path": str(path)}
+        return {"path": self._shown(path)}
+
+    def _shown(self, path: Path) -> str:
+        """导出的文件：安卓版再复制一份到手机的“下载”文件夹（程序自己的数据文件夹用户看不到）"""
+        if self.file_saver:
+            try:
+                return self.file_saver(str(path)) or str(path)
+            except Exception:
+                pass
+        return str(path)
 
     def api_export(self, p: dict) -> dict:
         out = self.dir / "exports"
@@ -899,7 +911,7 @@ class Core:
                             names[self._status(r if r["state"] is not None else None, bool(r["suspended"]))],
                             f"{datetime.fromtimestamp(r['due']):%Y-%m-%d}" if r["due"] else "",
                             round(r["stability"], 1) if r["stability"] else "", r["reps"] or 0, r["lapses"] or 0])
-        return {"path": str(path)}
+        return {"path": self._shown(path)}
 
     # ------------------------------------------------------------ 进度密钥
     def api_progress_export(self, p: dict) -> dict:

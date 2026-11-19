@@ -1,7 +1,7 @@
 // 启动、路由、顶部导航。
 import { api } from "./api.js";
 import { applyFonts } from "./fonts.js";
-import { $, $$, h, fail, ms, layerOpen, toast, icons, openLayer, gpuRenderer } from "./ui.js";
+import { $, $$, h, fail, ms, layerOpen, toast, icons, openLayer, gpuRenderer, closeTopLayer } from "./ui.js";
 import * as sfx from "./sfx.js";
 
 const routes = {
@@ -12,7 +12,7 @@ const routes = {
   settings: () => import("./pages/settings.js"),
 };
 
-export const app = { settings: {}, info: {}, keyHandler: null };
+export const app = { settings: {}, info: {}, keyHandler: null, backHook: null };  // backHook：页面自己处理返回键（比如退出多选）
 
 // 按设置算出应该是亮还是暗。页面上的 data-theme 在换肤动画开始后才改，所以开关的状态要以这里为准
 export const isDarkMode = (s = app.settings) => s.theme === "dark" || (s.theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
@@ -36,11 +36,32 @@ export function applySettings(s) {
     wantLook = key; swapLook(look);
     // 窗口底色跟着换：偶尔有一帧来不及画、或者拉大窗口露出新区域时，露出来的是当前主题的颜色，而不是启动时那个主题的
     api("look", { dark, palette }).catch(() => {});
+    if (window.ShiciAndroid) requestAnimationFrame(() => setTimeout(() => syncBars(dark), ms(420)));
   } else if (!swapping) look();
   applyFonts(s, app.info.user_fonts || []);
   sfx.configure(s);
   app.lookReady = true;
 }
+
+// 安卓版：手机顶部状态栏、底部导航条的颜色跟着顶栏和底部标签栏换
+function cssHex(c) {
+  const m = c.match(/^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)/) || c.match(/^color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)/);
+  if (!m) return null;
+  const k = c.startsWith("color(") ? 255 : 1;
+  return "#" + m.slice(1, 4).map((v) => Math.round(+v * k).toString(16).padStart(2, "0")).join("");
+}
+function syncBars(dark) {
+  const bg = (sel) => cssHex(getComputedStyle($(sel) || document.body).backgroundColor) || cssHex(getComputedStyle(document.body).backgroundColor);
+  const top = bg(".nav"), bottom = bg("#tabs");
+  if (top && bottom) try { window.ShiciAndroid.setBars(top, bottom, dark); } catch { /* 旧版外壳没有这个方法 */ }
+}
+// 安卓返回键：先关最上面的弹窗/抽屉，再回到“今日”；已经在“今日”时返回 false，由外壳把程序退到后台
+window.__shiciBack = () => {
+  if (closeTopLayer()) return true;
+  if (app.backHook) { app.backHook(); return true; }
+  if (!/^#\/home\b/.test(location.hash) && location.hash) { location.hash = "#/home"; return true; }
+  return false;
+};
 
 // 换主题或明暗：整屏一起淡入淡出。
 // 各元素自己的颜色过渡时长不同，背景渐变又没法过渡，直接切会出现导航栏和页面一先一后变色。
@@ -54,10 +75,14 @@ function swapLook(change) {
   // 开关单独成层、不参与整屏淡化：它保留自己的滑动和变色动画，看起来和以前一样顺
   // 旧画面里的开关直接隐藏，新画面是实时的，所以开关自己的过渡照常播放
   // 只挑完整露在导航栏下方的开关，被导航栏盖住一半的若单独成层会浮到导航栏上面
+  // 手机上底部还有标签栏，滚动区域在标签栏上面就被裁掉了：被裁掉（或被盖住）的开关不能单独成层，否则会浮到标签栏上面
   const top = document.querySelector(".nav")?.getBoundingClientRect().bottom || 0;
+  const tabsTop = document.querySelector("#tabs")?.getBoundingClientRect().top ?? innerHeight;
+  const bottom = tabsTop > innerHeight / 2 ? Math.min(innerHeight, tabsTop) : innerHeight;
   const live = [...document.querySelectorAll(".toggle")].filter((el) => {
     const r = el.getBoundingClientRect();
-    return r.width && r.top >= top && r.bottom <= innerHeight;
+    const clip = el.closest(".scroll, .page-pad, .library, .home, .rv-stage, .sheet-body, .drawer")?.getBoundingClientRect();
+    return r.width && r.top >= Math.max(top, clip?.top ?? 0) && r.bottom <= Math.min(bottom, clip?.bottom ?? innerHeight);
   });
   const css = document.createElement("style");
   css.textContent = live.map((el, i) => {
@@ -125,7 +150,7 @@ async function route() {
   if (pending) { pending.remove(); pending = null; }
   const old = current;
   current = null;
-  app.keyHandler = null;
+  app.keyHandler = null; app.backHook = null;
   if (old) {
     old.cleanup?.();
     old.el.classList.add("leaving");
@@ -189,6 +214,7 @@ async function boot() {
   try {
     app.info = await api("bootstrap");
     window.__shiciDesktop = !!app.info.desktop;
+    if (app.info.android) document.documentElement.dataset.shell = "android";
     applySettings(app.info.settings);
   } catch (e) { fail(e); }
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => applySettings(app.settings));

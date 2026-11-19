@@ -49,6 +49,13 @@
 
 更新到新版本时，下载新的 zip 覆盖旧文件夹就行。学习记录存在 `%APPDATA%\Shici`，不在程序文件夹里，覆盖不会丢进度。
 
+### 安卓版
+
+同一个 Releases 页面里下载 `小梦的词书-vX.Y.Z-android.apk`，在手机上打开安装（第一次会提示允许“安装未知应用”）。
+功能和电脑版一样，界面换成了手机的竖屏布局。第一次打开要把词典解压到手机里，大约半分钟。
+手机和电脑的学习记录是分开的，想接着背可以用「设置 → 数据 → 进度文件」把进度传过去。
+目前支持 Android 7.0 以上的 64 位手机。
+
 ## 从源码运行
 
 需要 **Python 3.10 或更新版本**。
@@ -179,6 +186,7 @@ shici/                 程序包（shici 是早期的内部代号）
   data/                内置词典 dict_*.db 和语音包 audio_*.db（都是 SQLite）
   web/                 界面：HTML + CSS + 原生 JavaScript，没有构建步骤
     js/sfx.js          按键音效（Web Audio 现场合成，没有音频文件）
+    css/phone.css      手机竖屏布局（安卓版，以及窄窗口）
 tools/
   build_dict.py        从 ECDICT / Tatoeba / WordNet / JLPT / JMdict 生成内置词典
   build_related.py     词根拆分、同根词、近义词 / 反义词（词根表在 roots_data.py，本项目自己整理）
@@ -186,6 +194,7 @@ tools/
   build_audio.py       用 Piper 和 Open JTalk 生成内置语音包
   build_fonts.py       裁剪界面字体
   seed_demo.py         生成一份演示用的学习记录
+android/               安卓版外壳（Chaquopy + WebView），构建方法见 android/README.md
 tests/                 核心逻辑和接口的自动化测试
 ```
 

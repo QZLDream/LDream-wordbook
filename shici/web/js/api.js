@@ -23,6 +23,7 @@ const warned = {};
 // 是不是桌面版（启动时 app.js 会设置）；不直接引用 app.js，避免循环依赖
 const app_desktop = () => !!window.__shiciDesktop;
 function webSpeech(text, lang) {
+  if (window.ShiciAndroid) return window.ShiciAndroid.speak(text, lang);  // 安卓 WebView 没有网页朗读，交给系统 TTS
   if (!("speechSynthesis" in window)) return;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = lang === "ja" ? "ja-JP" : "en-US";

@@ -32,7 +32,7 @@ export const icons = {
   upload: I('<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>'),
   moon: I('<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>'),
   sun: I('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>'),
-  undo: I('<path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 12"/>', 'viewBox="0 0 24 26"'),
+  undo: I('<path d="M9.5 4.75L4.75 9.5l4.75 4.75"/><path d="M4.75 9.5h8.75a4.75 4.75 0 0 1 0 9.5h-3.75"/>'),  // 和关闭图标一样大、居中，整个图形在 24×24 以内（以前尾巴超出被裁掉）
 };
 export const icon = (name, attrs = {}) => h("span", { class: "ico", html: icons[name], style: { display: "inline-grid" }, ...attrs });
 
@@ -72,6 +72,12 @@ const layers = [];
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && layers.length) { e.stopPropagation(); e.preventDefault(); layers[layers.length - 1](); }
 }, true);
+// 关掉最上面一层（安卓返回键用）。没有打开的层时返回 false
+export function closeTopLayer() {
+  if (!layers.length) return false;
+  layers[layers.length - 1]();
+  return true;
+}
 export function openLayer(kind, build, opts = {}) {
   const layer = $("#layer");
   const scrim = h("div", { class: "scrim" });
@@ -81,10 +87,13 @@ export function openLayer(kind, build, opts = {}) {
     closed = true;
     layers.splice(layers.indexOf(close), 1);
     scrim.style.pointerEvents = box.style.pointerEvents = "none";
+    const slide = kind === "drawer" || kind === "sheet";
     const out = kind === "drawer"
       ? exit(box, [{ transform: "translate3d(100%, 0, 0)" }], 380, "cubic-bezier(.55, 0, .75, .25)")
-      : exit(box, [{ opacity: 0, transform: "translate(-50%, calc(-50% + 14px)) scale(.985)" }], 240);
-    exit(scrim, [{ opacity: 0 }], kind === "drawer" ? 380 : 240, "ease-out");
+      : kind === "sheet"  // 手机上从底部弹出的面板：往下收回去
+        ? exit(box, [{ transform: "translate3d(0, 100%, 0)" }], 340, "cubic-bezier(.55, 0, .75, .25)")
+        : exit(box, [{ opacity: 0, transform: "translate(-50%, calc(-50% + 14px)) scale(.985)" }], 240);
+    exit(scrim, [{ opacity: 0 }], slide ? 360 : 240, "ease-out");
     out.then(() => { scrim.remove(); box.remove(); opts.onClose?.(); });
   };
   const box = h("div", { class: kind, role: "dialog", "aria-modal": "true", tabindex: -1, style: opts.width ? { "--w": opts.width } : null }, build(close));

@@ -311,8 +311,8 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 .spell { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 760px; text-align: center; }
 .spell .prompt { font: 400 clamp(18px, 2vw, 24px)/1.6 var(--serif); margin: 20px 0 6px; max-height: 5em; overflow: hidden; }
 .spell .slots { position: relative; margin-top: clamp(22px, 5vh, 46px); width: 100%; }
-.spell input { width: 100%; background: transparent; border: 0; border-bottom: 2px solid var(--line-2); text-align: center; padding: 8px 0 12px;
-  font: 700 clamp(36px, 5.4vw, 72px)/1.1 var(--serif); letter-spacing: .04em; caret-color: var(--accent); transition: border-color .4s; }
+.spell input { width: 100%; background: transparent; border: 0; border-bottom: 2px solid var(--line-2); text-align: center; padding: 2px 0 6px;
+  font: 700 clamp(36px, 5.4vw, 72px)/1.45 var(--serif);  /* 行高留足：输入框会裁掉超出行高的部分，p g y 这类字母的下伸笔画会被切掉 */ letter-spacing: .04em; caret-color: var(--accent); transition: border-color .4s; }
 .spell input:focus { outline: 0; border-color: var(--ink); }
 .spell input::placeholder { color: var(--line-2); letter-spacing: .3em; font-weight: 400; }
 .spell.ok input { border-color: var(--sage); color: var(--sage); }
@@ -333,6 +333,7 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 .lib-side { border-right: 1px solid var(--line); padding: clamp(24px, 4vh, 44px) 28px 28px var(--pad); display: flex; flex-direction: column; gap: 20px; min-height: 0; }
 .lib-side .acts { display: flex; gap: 10px; }
 .lib-side .acts .btn { flex: 1; }
+.book-pick, .fwrap, .sscope { display: none; }  /* 手机布局才用（phone.css） */
 .books { flex: 1; min-height: 0; margin-right: -14px; padding-right: 14px; }
 .books h4 { margin: 18px 0 8px; } .books h4:first-child { margin-top: 0; }
 .book { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 13px 0 14px; border-bottom: 1px solid var(--line); cursor: pointer;  }
@@ -684,3 +685,15 @@ input, textarea, [contenteditable], .keybox, .update-notes, .path,
 /* 右侧面板放了词根 / 近反义时，窗口矮就收紧间距、不显示底部的复习次数，免得溢出面板 */
 .rv-side .inner:has(.wx) { gap: 22px; }
 @media (max-height: 800px) { .rv-side .inner:has(.wx) { gap: 16px; } .rv-side .inner:has(.wx) .rv-meta { display: none; } }
+
+/* ---------- 朱橙主题：所有选择类控件都用方框（小圆角），不用胶囊形 ---------- */
+[data-palette="vermilion"] .seg { border-radius: 4px; }
+[data-palette="vermilion"] .seg button { border-radius: 3px; }
+[data-palette="vermilion"] .search .field, [data-palette="vermilion"] .select { border-radius: 4px; }
+[data-palette="vermilion"] .chip, [data-palette="vermilion"] .book .plan, [data-palette="vermilion"] .pick-go { border-radius: 4px; }
+[data-palette="vermilion"] .bulkbar { border-radius: 6px; }
+[data-palette="vermilion"] .bulkbar button { border-radius: 3px; }
+[data-palette="vermilion"] .toggle { border-radius: 4px; }
+[data-palette="vermilion"] .toggle::after { border-radius: 2px; }
+[data-palette="vermilion"] input[type="range"]::-webkit-slider-thumb { border-radius: 3px; }
+[data-palette="vermilion"] .sheet { border-radius: 8px 8px 0 0; }

@@ -1,0 +1,321 @@
+/* ================= 手机竖屏（安卓版，以及很窄的窗口） =================
+   只在宽度 ≤ 720px 时生效（index.html 里用 media 引入）。
+   布局思路：顶部一条细栏放小猫和今日进度，五个页面的入口挪到底部；每页改成单栏、整页上下滚动。 */
+
+:root { --nav-h: 52px; --tab-h: 62px; --pad: 20px; --safe-b: env(safe-area-inset-bottom, 0px); }
+
+/* ---------- 顶栏 + 底部标签栏 ---------- */
+.nav { grid-template-columns: auto 1fr; padding: 0 var(--pad); }
+/* 左上角只放“WORD // ARCHIVE”，不放小猫 */
+.brand-cat, .nav-date { display: none; }
+.brand-sub { display: block; font-size: 11px; letter-spacing: .2em; color: var(--ink-2); }
+/* 点按时不要系统默认的蓝色块；改成按钮自己轻轻按下去 */
+* { -webkit-tap-highlight-color: transparent; }
+.btn:active, .chip:active, .book-pick:active, .rate:active, .icon-btn:active { transform: scale(.97); transition: transform .12s ease-out; }
+.nav-meta { gap: 12px; }
+.nav-prog i { width: 64px; }
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; height: calc(var(--tab-h) + var(--safe-b)); padding-bottom: var(--safe-b); gap: 0;
+  border-top: 1px solid var(--line); background: color-mix(in srgb, var(--paper) 96%, transparent); }
+[data-palette="silver"] .tabs { background: color-mix(in srgb, var(--card) 96%, transparent); }
+.tabs a { flex: 1; flex-direction: column; justify-content: center; gap: 5px; padding: 0; font-size: 13px; -webkit-tap-highlight-color: transparent; }
+.tabs a b { font-size: 10px; }
+.tab-ink { top: -1px; bottom: auto; }
+.view { inset: var(--nav-h) 0 calc(var(--tab-h) + var(--safe-b)) 0; }
+.toasts { bottom: calc(var(--tab-h) + var(--safe-b) + 18px); width: calc(100vw - 40px); }
+.toast { max-width: 100%; text-align: center; }
+
+/* 手机上没有鼠标和键盘：去掉悬停位移和快捷键提示 */
+kbd { display: none !important; }
+.btn:hover, [data-palette="silver"] .btn:hover, .rate:hover { transform: none; box-shadow: none; }
+.btn { height: 48px; padding: 0 24px; }
+.page-pad { padding: 22px var(--pad) 32px; }
+.page-pad.scroll, .page > .scroll { -webkit-overflow-scrolling: touch; }
+.display { font-size: clamp(34px, 10vw, 44px); }
+.h2 { font-size: 24px; }
+
+/* ---------- 今日：标题、按钮，下面两张卡片（数据、连续天数），常见手机一屏放得下 ---------- */
+.home { --hgap: clamp(16px, 2.6vh, 24px); display: flex; flex-direction: column; overflow-y: auto; height: 100%; padding-bottom: 18px; }
+.home-main { padding: clamp(18px, 3.2vh, 30px) var(--pad) 0; flex: none; display: flex; flex-direction: column; }
+.home-main .display { margin: clamp(10px, 1.8vh, 16px) 0 clamp(8px, 1.4vh, 12px); font-size: clamp(32px, 9.4vw, 42px); line-height: 1.12; }
+.home-sub { font-size: 14.5px; line-height: 1.7; }
+.home-queue { margin: var(--hgap) 0 0; gap: 30px; }
+.home-queue:empty { margin: clamp(14px, 2.4vh, 22px) 0 0; }
+.home-queue .num { font-size: 28px; }
+/* 矮屏（比如 360×740 以下）：标题和间距再收一点，一屏放下 */
+@media (max-height: 740px) {
+  .home-main .display { font-size: clamp(28px, 8.4vw, 34px); }
+  .home-sub { font-size: 13.5px; line-height: 1.6; }
+  .home { --hgap: 12px; } .home-queue .num { font-size: 24px; }
+  .home-cta .btn { height: 44px; }
+  .home-dark .big { font-size: 62px; margin-top: 8px; }
+  .home-curve svg { max-height: 84px; }
+}
+.home-cta { gap: 10px; flex-wrap: nowrap; }
+.home > .home-cta { flex: none; margin: var(--hgap) var(--pad) 0; }  /* 按钮在最下面，卡片和按钮之间同样的间距 */
+.home-cta .btn { flex: 1; min-width: 0; padding: 0 16px; }
+/* 四个数字：一张卡片里 4 列（窄屏 2×2） */
+/* 高屏手机上，两张卡片沉到下面（靠近底部标签栏），中间留白；矮屏就按顺序排 */
+.home-strip { margin: auto 0 0; padding: 14px 16px; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 8px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 6px; }
+.home-strip .rule { display: none; }
+.home-strip .label .more { display: none; }
+.home-strip div { gap: 7px; min-width: 0; }
+.home-strip .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-strip .num { font-size: 19px; }
+[data-palette="silver"] .home-strip { border: 0; border-radius: 22px; box-shadow: var(--shadow); padding: 18px 20px; }
+/* 连续天数 + 遗忘曲线 */
+/* 卡片往上拉长，填满按钮下面的空白：卡片和按钮的间距 = 数字和按钮的间距（--hgap）；内容在卡片上半部分居中，四个数字贴底 */
+.home-dark { height: auto; flex: 1 0 auto; display: flex; flex-direction: column; margin: var(--hgap) var(--pad) 0; }
+.home-dark .slab { flex: 1; display: flex; flex-direction: column; }
+.home-dark .inner { flex: 1; }
+.home-dark .slab { position: relative; inset: auto; clip-path: none; animation: fade .8s var(--ease) both; border-radius: 6px; }
+.home-dark .slash { display: none; }
+/* 横着排：左边连续天数，右边一小段遗忘曲线，卡片矮一些，整页能放进一屏 */
+.home-dark .inner { position: relative; inset: auto; padding: 18px 18px 16px 20px; display: grid; grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr auto; column-gap: 16px; align-items: start; }  /* 连续天数贴着卡片顶部，曲线仍在上半部分居中 */
+.home-dark .inner > .label { grid-column: 1; grid-row: 1; white-space: nowrap; }
+.home-dark .big { grid-column: 1; grid-row: 2; font-size: clamp(68px, 21vw, 92px); margin-top: 12px; white-space: nowrap; }
+.home-dark .big small { display: block; margin: 8px 0 0 2px; font-size: 10px; }
+.home-curve { grid-column: 2; grid-row: 1 / 4; margin: 0; align-self: end; }  /* 对角线：天数在左上，曲线在右下 */
+.home-curve svg { display: block; max-height: 104px; }
+.home-curve .cap { margin-top: 6px; justify-content: flex-end; }
+.home-curve .cap .label:first-child { display: none; }
+.home-curve .cap .label { font-size: 9.5px; letter-spacing: .12em; }
+[data-palette="silver"] .home-dark { margin: var(--hgap) var(--pad) 0; }
+[data-palette="silver"] .home-dark .slab { inset: auto; border-radius: 22px; animation: rise .8s var(--ease) both; }
+[data-palette="silver"] .home-dark .inner { inset: auto; padding: 20px 22px 18px; }
+/* 四个数字放在卡片下半部分，和上面的连续天数、曲线合成一张卡片 */
+.home-dark .home-strip { grid-column: 1 / -1; grid-row: 4; margin: 16px 0 0; padding: 14px 0 0; background: none; border: 0; border-top: 1px solid var(--panel-line);
+  border-radius: 0; box-shadow: none; }
+[data-palette="silver"] .home-dark .home-strip { padding: 16px 0 0; box-shadow: none; border-radius: 0; border-top: 1px solid var(--line); }
+.home-dark .home-strip .label { color: var(--on-panel-mute); }
+.home-dark .home-strip .num { color: var(--on-panel); }
+
+
+/* ---------- 复习 ---------- */
+.rv-top { padding: 12px var(--pad) 0; }
+.rv-top > .label { display: none; }
+/* 顶栏已经有今日进度，复习页左上角那条重复的进度条去掉 */
+.rv-bar { display: none; }
+.rv-counts { flex: 1; }
+.rv-counts { gap: 12px; }
+.rv-counts .label { font-size: 11px; }
+/* 背完 / 没有词时：上面的计数都是 0，去掉；撤销和关闭浮在右上角，下面的标题和“今日”页对齐 */
+.review:has(.done) .rv-top { position: absolute; top: 0; right: 0; left: auto; padding: 12px var(--pad) 0; }
+.review:has(.done) .rv-counts > span { display: none; }
+.review:has(.done) .rv-counts { gap: 12px; }
+/* 撤销和关闭：一样大，一起靠右 */
+.rv-top .icon-btn { width: 36px; height: 36px; }
+.rv-counts > button.icon-btn { margin-left: auto; }
+.rv-counts > a.icon-btn { margin: 0; }  /* 和顶栏的月亮图标上下对齐 */
+.rv-counts > a.icon-btn:first-child, .rv-counts > span + a.icon-btn { margin-left: auto; }
+.rv-top .icon-btn svg { width: 20px; height: 20px; }
+/* 页面本身不滚动：单词和释义固定在上面，例句卡片占满中间、只在卡片里面上下滑，评分按钮在最下面 */
+.rv-stage { overflow: hidden; display: flex; flex-direction: column; }
+.rv-main { position: relative; inset: auto; flex: 1 0 auto; padding: 0 var(--pad) 40px; }
+.rv-stage.revealed .rv-main { flex: 0 1 auto; min-height: 0; max-height: 46%; overflow-y: auto; padding: 18px var(--pad) 6px; }
+.term { font-size: clamp(44px, 14vw, 64px); }
+.term[lang="ja"] { font-size: clamp(42px, 13vw, 60px); }
+.term.long { font-size: clamp(32px, 10vw, 48px); }
+.rv-stage.revealed .term { font-size: clamp(34px, 10vw, 44px); }
+.rv-stage.revealed .term.long { font-size: clamp(26px, 8vw, 34px); }
+.defs { max-height: none; min-height: 0; }
+.def { font-size: 16.5px; grid-template-columns: 40px 1fr; }
+.rv-hint { margin-top: 40px; }
+/* 右侧面板变成答案下面的一张卡片 */
+.rv-side { position: relative; inset: auto; width: auto; display: none; margin: 10px 0 0; flex: none; }
+.rv-stage.revealed .rv-side { display: flex; flex-direction: column; flex: 1 1 0; min-height: 140px; margin-bottom: 8px; }
+.rv-side .slab { position: relative; inset: auto !important; clip-path: none !important; transition: none; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.rv-side .slash { display: none; }
+.rv-side .inner { position: relative; inset: auto; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px var(--pad) 26px; gap: 22px; }
+[data-palette="silver"] .rv-side { margin: 8px 12px 0; }
+/* 朱橙主题：例句卡片不用电脑版那块黑色，和页面同一色系（浅色时是白卡片 + 细边框，深色时是深灰卡片） */
+[data-palette="vermilion"] .rv-side { margin: 6px 12px 0; --panel: var(--card); --on-panel: var(--ink); --on-panel-mute: var(--mute); --panel-line: var(--line); --panel-accent: var(--accent); }
+[data-palette="vermilion"] .rv-side .slab { border: 1px solid var(--line); border-radius: 6px; }
+[data-palette="vermilion"] .rv-side .inner { padding: 22px 20px 22px; }
+[data-palette="vermilion"] .rv-side .note-box { background: var(--paper); }
+[data-palette="silver"] .rv-side .slab { inset: 0; border-radius: 24px; clip-path: none; }
+[data-palette="silver"] .rv-side .inner { padding: 24px 20px 24px; }
+.rv-side .rv-meta { display: grid !important; }
+/* 换词：整张卡片一起淡出（以前例句卡片会多停一下再突然消失，看起来是割裂的） */
+.rv-stage.out { opacity: 0; transform: translate3d(0, -10px, 0); transition: opacity .2s ease-out, transform .2s ease-out; }
+.rv-stage.out .rv-main, .rv-stage.out .rv-side .inner, .rv-stage.out .rv-actions, .rv-stage.out .rv-easy { transition: none; transform: none; opacity: 1; }
+/* 显示答案：问题页淡出的同时，答案从上到下依次浮现（单词 → 释义 → 例句卡片 → 评分按钮） */
+.rv-stage.revealed .rv-word { animation: rise .5s var(--ease) both; }
+.rv-stage.revealed .rv-answer { animation: rise .55s var(--ease) .06s both; }
+.rv-stage.revealed .rv-side { animation: rise .6s var(--ease) .12s both; }
+.rv-stage.revealed .rv-actions { animation: bar-up .45s var(--ease) both; }
+.rv-actions .rate { animation: none; }  /* 按钮跟着整条一起滑上来，不再一个个淡入 */
+@keyframes bar-up { from { transform: translate3d(0, 100%, 0); } to { transform: none; } }
+.ex p:first-child, [data-palette="silver"] .ex p:first-child { font-size: 15px; }
+.wx.compact .wx-row.fam { display: flex !important; }
+.rv-actions { position: relative; left: auto; bottom: auto; width: auto; flex: none; margin-top: auto; padding: 14px 12px 12px; gap: 8px;
+  background: none; box-shadow: none; }  /* 例句已经在卡片里单独滚动，评分按钮下面不需要再垫一条底色 */
+[data-palette="silver"] .rv-actions { background: none; box-shadow: none; }
+.rate { padding: 12px 14px 11px; gap: 6px; }
+.rate .name, [data-palette="silver"] .rate .name { font-size: 17px; }
+[data-palette="silver"] .rate { padding: 13px 14px 12px; border-radius: 16px; }
+[data-palette="silver"] .rate::before { left: 14px; top: 17px; }
+[data-palette="silver"] .rate .top { padding-left: 14px; }
+.rate .iv { font-size: 11px; }
+/* “太简单了”在手机上不单独占一行：长按“认识”变成“熟识”，松手就记为熟识 */
+.rv-easy, .rv-stage.revealed .rv-easy { display: none; }
+.rate.good { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+.rate.good.hold { background: var(--c); color: #fff; border-color: var(--c); transform: scale(1.03); transition: transform .25s var(--ease), background-color .2s, color .2s; }
+.rate.good.hold .iv { color: rgba(255, 255, 255, .85); }
+.spell input { font-size: clamp(30px, 9vw, 44px); }
+/* 没有要背的词 / 背完了：和“今日”页同样的排法（标题、说明、按钮从上往下，字号和间距一致） */
+.done { display: block; height: auto; padding: clamp(18px, 3.2vh, 30px) var(--pad) 24px; }
+.done-text { padding-bottom: clamp(14px, 2.4vh, 22px); }
+.done-text > .label { display: block; }
+.done .display { margin: clamp(10px, 1.8vh, 16px) 0 clamp(8px, 1.4vh, 12px); font-size: clamp(32px, 9.4vw, 42px); line-height: 1.12; }
+.done .done-gap { display: none; }
+.done-stats { gap: 28px; flex-wrap: wrap; margin: 18px 0 0; }
+.done .home-cta { margin-bottom: 0; }
+
+/* ---------- 词库：上面一张“当前词书”卡片，点开从底部弹出词书列表；下面是单词列表，整页滚动 ---------- */
+.library { display: flex; flex-direction: column; overflow: hidden; height: 100%; }
+.lib-side { flex: none; }
+/* 中间的单词列表单独滚动；最下面固定：当前词书卡片 + 添加/导入按钮 */
+.lib-dock { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 10px var(--pad) 14px; border-top: 1px solid var(--line); background: var(--paper); }
+[data-palette="silver"] .lib-dock { border-top: 0; background: none; padding-top: 6px; }
+.lib-dock .acts { display: flex; gap: 10px; }
+.lib-dock .acts .btn { flex: 1; }
+.lib-dock .book-pick { padding: 10px 12px 10px 16px; }
+.lib-dock .pick-txt { gap: 3px; }
+.lib-dock .pick-t { font-size: 17px; }
+/* 多选：多选操作栏就放在“添加/导入”按钮那一行，两者交叉淡入淡出 */
+.lib-dock { position: relative; }
+.lib-dock .acts { transition: opacity .25s ease-out, transform .35s var(--ease); }
+.library.selecting .lib-dock .acts { opacity: 0; transform: translate3d(0, 10px, 0); pointer-events: none; }
+.acts-wrap { position: relative; }
+.lib-dock .bulkbar { position: absolute; inset: 0; max-width: none; height: auto; padding: 0 6px 0 14px; gap: 0;
+  transform: translate3d(0, 14px, 0); opacity: 0; transition: transform .4s var(--ease), opacity .25s ease-out; box-shadow: none; }
+.library.selecting .lib-dock .bulkbar { transform: none; opacity: 1; pointer-events: auto; }
+/* 手机上多选栏只留：已选 N 个 · 完成 · 全选 · 优先学 · 搁置 · 删除，一排均分放下，不用左右滑 */
+.lib-dock .bulkbar { overflow: hidden; justify-content: center; gap: 2px; padding: 0 12px; }  /* 按钮靠拢，两边多留点空 */
+.lib-dock .bulkbar button[data-k="resume"], .lib-dock .bulkbar button[data-k="reset"] { display: none; }
+.lib-dock .bulkbar button { flex: 0 1 auto; min-width: 0; padding: 0 7px; font-size: 13px; white-space: nowrap; }
+/* “已选 N 个”和右边按钮用同样的盒子：同高、同内边距、文字上下居中，这样文字中线在一条线上 */
+.lib-dock .bulkbar .cnt, .lib-dock .bulkbar button { display: inline-flex; align-items: center; height: 30px; line-height: 1; }
+.lib-dock .bulkbar .cnt { flex: none; margin: 0; padding: 0 7px; font-size: 13px; }  /* 和按钮同样的左右内边距，整排才居中 */
+.lib-dock .bulkbar .cnt b { margin: 0 3px; font-size: 15px; line-height: 1; }
+.lib-dock .bulkbar button:hover { background: none; }
+.lib-dock .bulkbar button:active { background: color-mix(in srgb, var(--paper) 16%, transparent); }
+.lib-dock .bulkbar .sepv { display: none; }
+.word-row { transition: padding-left .35s var(--ease), background-color .25s; }
+.lib-side { border-right: 0; padding: 22px var(--pad) 0; gap: 14px; }
+.lib-side > .books { display: none; }
+.book-pick { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 14px 14px 18px; text-align: left; color: var(--ink);
+  background: var(--card); border: 1px solid var(--line); border-radius: 6px; }
+[data-palette="silver"] .book-pick { border: 0; border-radius: 20px; box-shadow: var(--shadow); }
+.pick-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.pick-t { font: 700 19px/1.2 var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-palette="silver"] .pick-t { font-family: var(--sans); font-weight: 600; }
+.pick-m { font-size: 12px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-go { flex: none; display: flex; align-items: center; gap: 2px; padding: 8px 10px 8px 14px; border-radius: 20px; font-size: 13px; color: var(--ink);
+  border: 1px solid var(--line-2); }
+.pick-go i { display: grid; }
+.lib-main { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 14px var(--pad) 0; }
+.lib-head { display: none !important; }  /* 词数和“多选”按钮不要了：手机上长按一个词进入多选 */
+.lib-head { align-items: center; }
+.lib-tools { margin: 12px 0 8px; gap: 10px; }
+.search { max-width: none; flex-basis: 100%; }
+/* 搜索框在最上面；右边是搜索范围：全部 / 本书 */
+.lib-search .search { min-width: 0; }
+.lib-search .field { height: 44px; padding-right: 18px; }
+.search.scoped .field { padding-right: 118px; }
+.search.scoped .sscope { display: flex; position: absolute; right: 5px; top: 5px; bottom: 5px; padding: 3px; gap: 0; border-radius: 999px; background: var(--line); }
+.sscope button { padding: 0 12px; font-size: 12.5px; font-weight: 500; color: var(--mute); border-radius: 999px; white-space: nowrap; transition: color .25s, background-color .3s var(--ease); }
+.sscope button.on { color: var(--ink); background: var(--card); box-shadow: 0 1px 2px rgba(24, 24, 27, .12); }
+[data-palette="vermilion"] .search.scoped .sscope, [data-palette="vermilion"] .sscope button { border-radius: 3px; }
+/* 状态筛选：标签那一排不显示，改成排序右边的下拉菜单 */
+.lib-tools .chips { display: none; }
+.lib-tools > .seg { margin-left: 0; }
+.lib-tools { position: relative; z-index: 20; }  /* 下拉菜单要盖住下面的单词列表 */
+.fwrap { display: flex; align-self: stretch; position: relative; margin-left: auto; }
+.fbtn { display: inline-flex; align-items: center; gap: 6px; height: auto;  /* 和左边排序按钮同高 */ padding: 0 12px 0 16px; border-radius: 999px; font-size: 13px; font-weight: 500;
+  color: var(--ink); background: var(--line); white-space: nowrap; }
+.fbtn i { display: grid; transition: transform .3s var(--ease); }
+.fwrap.open .fbtn i { transform: rotate(180deg); }
+.fbtn.active { background: var(--ink); color: var(--paper); }
+[data-palette="vermilion"] .fbtn { border-radius: 4px; }
+.fmenu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; min-width: 168px; padding: 6px; background: var(--card); border-radius: 16px;
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .28), 0 0 0 1px var(--line); opacity: 0; transform: translateY(-6px) scale(.97); transform-origin: top right;
+  pointer-events: none; transition: opacity .18s ease-out, transform .25s var(--ease); }
+[data-palette="vermilion"] .fmenu { border-radius: 6px; }
+.fwrap.open .fmenu { opacity: 1; transform: none; pointer-events: auto; }
+.fwrap.up .fmenu { top: auto; bottom: calc(100% + 8px); transform-origin: bottom right; }
+.fwrap.up:not(.open) .fmenu { transform: translateY(6px) scale(.97); }
+.fitem { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 11px 12px; border-radius: 10px; font-size: 14px; color: var(--ink); text-align: left; }
+.fitem:active { background: var(--line); }
+.fitem:first-child { border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0; margin-bottom: 4px; }
+.fitem .tick { width: 16px; height: 16px; position: relative; opacity: 0; transition: opacity .2s; }
+.fitem .tick::after { content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.fitem.on .tick { opacity: 1; }
+.fitem.on { font-weight: 600; }
+.words { flex: 1; min-height: 0; overflow-y: auto; margin: 0 calc(var(--pad) * -1); padding: 0 var(--pad) 12px; }
+.words-head { display: none; }
+.empty { padding: 44px 0 24px; }
+.word-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "w s" "d d"; gap: 4px 12px; padding: 12px 6px; }
+.word-row .w { grid-area: w; } .word-row .r { display: none; } .word-row .d { grid-area: d; font-size: 13px; color: var(--mute); }
+.word-row .s { grid-area: s; } .word-row .due { display: none; }
+.lib-main.selecting .word-row { padding-left: 40px; }
+/* 选中的勾选框：只填满纯色，不画 √ */
+.word-row.picked .ck::after { display: none; }
+/* 多选栏：“完成”挪到最前面，不用横着滑也能退出 */
+.bulkbar .cnt { order: -2; } .bulkbar > button:last-child { order: -1; font-weight: 600; }
+.bulkbar { position: fixed; bottom: calc(var(--tab-h) + var(--safe-b) + 14px); max-width: calc(100vw - 24px); overflow-x: auto; padding: 8px 10px 8px 16px; }
+
+/* 底部弹出的面板（选择词书） */
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 86%; display: flex; flex-direction: column; background: var(--paper);
+  border-radius: 20px 20px 0 0; box-shadow: 0 -20px 50px -30px rgba(0, 0, 0, .45); animation: sheet-up .42s var(--ease) both; padding-bottom: var(--safe-b); }
+[data-palette="silver"] .sheet { background: var(--card); border-radius: 26px 26px 0 0; }
+@keyframes sheet-up { from { transform: translate3d(0, 100%, 0); } to { transform: none; } }
+.sheet-head { position: relative; display: flex; align-items: flex-end; justify-content: space-between; padding: 22px 12px 0 var(--pad); }
+.sheet-head .h2 { margin-top: 8px; }
+.sheet-head .grab { position: absolute; left: 50%; top: 8px; width: 38px; height: 4px; margin-left: -19px; border-radius: 2px; background: var(--line-2); }
+.sheet-tip { padding: 8px var(--pad) 4px; font-size: 12.5px; color: var(--mute); }
+.sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px var(--pad) 20px; }
+.sheet .books { margin: 0; padding: 0; }
+.sheet .books h4 { margin: 20px 0 4px; }
+.sheet .book { padding: 14px 0 15px; }
+.sheet .book:not(.sel):hover > .t, .sheet .book:not(.sel):hover > .m { transform: none; }
+.sheet .book.sel > .t, .sheet .book.sel > .m { transform: translate3d(12px, 0, 0); }  /* 选中的词书：左边红线，文字让开 */
+.sheet .book .plan { padding: 8px 14px; font-size: 12.5px; }
+
+/* ---------- 浮层：抽屉从下往上、占满屏幕；弹窗变窄 ---------- */
+.drawer { width: 100vw; border-left: 0; }
+.drawer-head { padding: 14px 12px 0 var(--pad); }
+.drawer-body { padding: 4px var(--pad) 28px; }
+.drawer-foot { padding: 12px var(--pad) calc(12px + var(--safe-b)); }
+.kv { grid-template-columns: repeat(2, 1fr); }
+.modal { width: calc(100vw - 24px); max-height: 88vh; }
+.modal-head { padding: 22px 18px 0 22px; }
+.modal-body { padding: 16px 22px 6px; overflow-y: auto; }
+.modal-foot { padding: 14px 22px 22px; flex-wrap: wrap; }
+.modal-foot .btn { flex: 1 1 auto; }
+.big-input { font-size: 30px; }
+.pv-row { grid-template-columns: 1fr 1.6fr 52px; }
+
+/* ---------- 统计 ---------- */
+.stats-grid { gap: 12px; padding-bottom: 8px; }
+.tile, .tile.span-3 { grid-column: span 6; padding: 14px 16px 13px; min-width: 0; }
+/* 四个数字卡片矮一点，第一屏能完整看到下面的“每天背了多少次” */
+.tile .num { font-size: 30px; margin: 10px 0 6px; }
+.tile > :last-child { font-size: 12px; line-height: 1.5; color: var(--mute); }
+.span-7, .span-5, .span-6, .span-12 { grid-column: span 12; }
+.chart { padding: 18px 16px 16px; }
+.chart-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+.statelist { grid-template-columns: 1fr; }
+
+/* ---------- 设置：说明在上，控件换到下一行 ---------- */
+.set-row { flex-direction: column; align-items: stretch; gap: 12px; padding: 16px 0; }
+.set-row .ctl { flex-wrap: wrap; justify-content: flex-start; }
+.set-row .ctl:has(> .toggle:only-child) { position: absolute; right: 0; top: 16px; }
+.set-row:has(.ctl > .toggle:only-child) { position: relative; padding-right: 60px; }
+.seg { max-width: 100%; overflow-x: auto; }
+input[type="range"] { flex: 1; width: auto; min-width: 0; }
+.select { min-width: 0; max-width: 100%; width: 100%; }
+.set-row.sub { padding-left: 14px; }
+.about-links .btn { flex: 1 1 auto; }

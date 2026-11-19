@@ -1,0 +1,9 @@
+# 签名密钥和密码：千万不要传到 GitHub
+keystore.properties
+*.jks
+*.keystore
+# 构建产物
+.gradle/
+build/
+app/build/
+local.properties
