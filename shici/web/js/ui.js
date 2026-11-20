@@ -162,9 +162,34 @@ export const hideTip = () => tipEl?.classList.remove("show");
 
 // 把单词拆成逐字母升起的动画
 export function letters(text) {
+  // 每个单词包成一组不换行（以前字母之间也能断行，长单词会被拆到第二行）；只在词组的空格处换行
   let n = 0;
-  return [...text].map((c) => c === " " ? " " : h("span", { class: "ch" }, h("i", { style: { "--n": n++ }, text: c })));
+  const out = [];
+  text.split(" ").forEach((w, k) => {
+    if (k) out.push(" ");
+    if (w) out.push(h("span", { class: "w" }, [...w].map((c) => h("span", { class: "ch" }, h("i", { style: { "--n": n++ }, text: c })))));
+  });
+  return out;
 }
+
+// 单词太长、一行放不下时，按比例缩小字号让它正好放进一行；放得下的词不动
+export function fitTerm(el) {
+  if (!el || !el.isConnected) return;
+  el.style.fontSize = "";
+  const box = el.clientWidth;
+  if (!box) return;
+  let widest = 0;
+  const groups = el.querySelectorAll(".w");
+  if (groups.length) groups.forEach((g) => { widest = Math.max(widest, g.scrollWidth); });
+  else if (!/\s/.test(el.textContent.trim())) {  // 纯文字（词库详情里的词）
+    const r = document.createRange(); r.selectNodeContents(el); widest = r.getBoundingClientRect().width;
+  }
+  if (widest > box + 1) {
+    const fs = parseFloat(getComputedStyle(el).fontSize);
+    el.style.fontSize = Math.floor(fs * box / widest * 0.98) + "px";
+  }
+}
+export function fitTerms(root = document) { root.querySelectorAll(".term").forEach(fitTerm); }
 
 // “vt. 放弃, 抛弃\nn. 放任” → 带词性标签的几行。没有任何词性标签时整块去掉标签列（父元素加 plain 类）。
 export function defLines(definition, max = 6) {

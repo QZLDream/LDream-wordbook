@@ -1,6 +1,6 @@
 // 复习：看词回忆 → 显示答案 → 忘记 / 模糊 / 认识。也负责拼写模式和自由拼写练习。
 import { api, speak } from "../api.js";
-import { h, $, fill, icons, letters, defBlock, exampleEl, wordExtras, toast, fail, ms, wait, EASE, reduced, countUp } from "../ui.js";
+import { h, $, fill, icons, letters, fitTerm, defBlock, exampleEl, wordExtras, toast, fail, ms, wait, EASE, reduced, countUp } from "../ui.js";
 import { app, refreshNav } from "../app.js";
 import * as sfx from "../sfx.js";
 
@@ -141,6 +141,7 @@ export async function mount(root, query) {
     const stage = S.stage, word = stage._word, term = $(".term", word);
     const a = word.getBoundingClientRect(), aw = term.getBoundingClientRect().width;
     stage.classList.add("revealed");
+    fitTerm(term);  // 翻开后字号变了，重新按一行量一次（要在量位置做滑动动画之前）
     stage.scrollTop = 0;
     const b = word.getBoundingClientRect(), bw = term.getBoundingClientRect().width;
     // 手机上不做这个滑动：单词还在半路时释义已经出现，两者会叠在一起。手机改成整张答案从下往上浮现（phone.css）

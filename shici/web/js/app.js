@@ -1,7 +1,7 @@
 // 启动、路由、顶部导航。
 import { api } from "./api.js";
 import { applyFonts } from "./fonts.js";
-import { $, $$, h, fail, ms, layerOpen, toast, icons, openLayer, gpuRenderer, closeTopLayer } from "./ui.js";
+import { $, $$, h, fail, ms, layerOpen, toast, icons, openLayer, gpuRenderer, closeTopLayer, fitTerms } from "./ui.js";
 import * as sfx from "./sfx.js";
 
 const routes = {
@@ -55,6 +55,13 @@ function syncBars(dark) {
   const top = bg(".nav"), bottom = bg("#tabs");
   if (top && bottom) try { window.ShiciAndroid.setBars(top, bottom, dark); } catch { /* 旧版外壳没有这个方法 */ }
 }
+// 长单词自动缩小到一行：页面里新出现的单词、窗口大小变化时都量一次
+let fitT = 0;
+const refit = () => { clearTimeout(fitT); fitT = setTimeout(() => requestAnimationFrame(() => fitTerms()), 30); };
+new MutationObserver((ms) => { if (ms.some((m) => [...m.addedNodes].some((n) => n.nodeType === 1 && (n.matches(".term") || n.querySelector?.(".term"))))) refit(); })
+  .observe(document.body, { childList: true, subtree: true });
+addEventListener("resize", refit);
+document.fonts?.ready.then(refit);
 // 安卓返回键：先关最上面的弹窗/抽屉，再回到“今日”；已经在“今日”时返回 false，由外壳把程序退到后台
 window.__shiciBack = () => {
   if (closeTopLayer()) return true;

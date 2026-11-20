@@ -93,7 +93,7 @@ svg { display: block; }
 @keyframes rise { from { opacity: 0; transform: translate3d(0, 18px, 0); } to { opacity: 1; transform: none; } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes draw-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@keyframes letter { from { transform: translate3d(0, 105%, 0); } to { transform: none; } }
+@keyframes letter { from { transform: translate3d(0, 135%, 0); } to { transform: none; } }
 @keyframes breathe { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 @keyframes shake { 10%, 90% { transform: translateX(-2px); } 20%, 80% { transform: translateX(4px); } 30%, 50%, 70% { transform: translateX(-7px); } 40%, 60% { transform: translateX(7px); } }
 .rise { animation: rise .8s var(--ease) both; animation-delay: calc(var(--i, 0) * 80ms + var(--d, 0ms)); }
@@ -237,12 +237,13 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 .rv-word { display: flex; flex-direction: column; align-items: center; text-align: center; transform-origin: left top; will-change: transform; max-width: 100%; }
 .rv-stage.revealed .rv-word { align-items: flex-start; text-align: left; }
 .rv-tag { height: 14px; }
-.term { font: 700 clamp(56px, 9vw, 132px)/1.08 var(--serif); letter-spacing: -.015em; margin: 18px 0 6px; overflow-wrap: anywhere; max-width: 100%; }
+.term { font: 700 clamp(56px, 9vw, 132px)/1.08 var(--serif); letter-spacing: -.015em; margin: 18px 0 6px; overflow-wrap: normal; max-width: 100%; }
+.term .w { display: inline-block; white-space: nowrap; }
 .term[lang="ja"] { font-family: var(--serif-ja); letter-spacing: .02em; font-size: clamp(52px, 8vw, 116px); }
 .term.long { font-size: clamp(40px, 6vw, 88px); }
 .rv-stage.revealed .term { font-size: clamp(40px, 5vw, 76px); margin: 14px 0 4px; }
 .rv-stage.revealed .term.long { font-size: clamp(30px, 3.6vw, 54px); }
-.term .ch { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: .12em; margin-bottom: -.12em; }
+.term .ch { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: .3em; margin-bottom: -.3em; }  /* 给 p g j y 的下伸笔画留够空间，不然入场动画的遮罩会切掉 */
 .term .ch i { display: inline-block; font-style: normal; animation: letter .9s var(--ease) both; animation-delay: calc(var(--n) * 28ms + 60ms); }
 .reading { display: inline-flex; align-items: center; gap: 6px; font: 400 18px/1 var(--sans); color: var(--mute); min-height: 36px; animation: fade .8s var(--ease) .35s both; }
 .term[lang="ja"] + .reading { font-family: var(--sans); font-size: 19px; letter-spacing: .08em; }
