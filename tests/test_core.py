@@ -655,3 +655,10 @@ def test_roots_and_related(core):
     core.api_settings_set({"show_roots": True, "show_related": True})
     it = core.api_item({"id": iid})
     assert it["roots"]["parts"][1]["t"] == "port" and "syn" in it["related"]
+
+
+def test_version_compare_pads_missing_parts():
+    from shici.core import Core
+    assert Core._ver("1.0") == Core._ver("1.0.0") == (1, 0, 0)
+    assert Core._ver("1.0.1") > Core._ver("1.0")
+    assert not Core._ver("1.0") > Core._ver("1.0.0")

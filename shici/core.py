@@ -790,7 +790,8 @@ class Core:
     # ------------------------------------------------------------ 检查更新
     @staticmethod
     def _ver(v: str) -> tuple:
-        return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3])
+        n = [int(x) for x in re.findall(r"\d+", v or "")[:3]]
+        return tuple(n + [0] * (3 - len(n)))  # 补齐三段：GitHub 上写 v1.0 也当作 1.0.0
 
     def api_update_check(self, p: dict) -> dict:
         """问 GitHub 最新发布的版本号。联网失败不报错，只返回 ok=False。"""
