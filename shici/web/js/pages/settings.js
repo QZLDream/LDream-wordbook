@@ -24,7 +24,8 @@ export async function mount(root) {
     if (await ask("重启程序吗？", "这项设置要重启才生效。正在背的进度都已经保存了。", { ok: "立即重启" })) api("restart").catch(fail);
   };
   const gpuName = h("span", { class: "path", text: gpuRenderer() });
-  const row = (title, desc, ctl, cls = "") => h("div", { class: "set-row " + cls }, h("div", { class: "txt" }, h("b", { text: title }), desc ? h("span", { text: desc }) : null), h("div", { class: "ctl" }, ctl));
+  const row = (title, desc, ctl, cls = "") => h("div", { class: "set-row " + cls }, h("div", { class: "txt" }, h("b", { text: title }),
+    desc ? (typeof desc === "string" ? h("span", { text: desc }) : desc) : null), h("div", { class: "ctl" }, ctl));
   const seg = (key, opts, after, quiet) => {
     // quiet：点了会自己出声的选项（音色），不再叠加通用的点击音
     const el = h("div", { class: "seg", "data-sfx": quiet ? "none" : null }, opts.map(([k, t]) => h("button", { "data-k": k, text: t,
@@ -55,8 +56,8 @@ export async function mount(root) {
 
   // 音效相关的几行，关闭时变灰
   const sfxRows = [
-    row("音色", "前几种偏低沉；选一下就能听到。", seg("sfx_set", Object.entries(sfx.SETS).map(([k, v]) => [k, v.name]), (k) => sfx.play("good", { set: k, force: true }), true), "sub"),
     row("音量", null, slider("sfx_volume", 0, 100, 5, (v) => `${Math.round(v)}%`, 1, () => sfx.play("good", { force: true })), "sub"),
+    row("音色", "前几种偏低沉；选一下就能听到。", seg("sfx_set", Object.entries(sfx.SETS).map(([k, v]) => [k, v.name]), (k) => sfx.play("good", { set: k, force: true }), true), "sub"),
     row("试听", "不同操作的声音略有区别：答得越好音越高。", [["翻牌", "flip"], ["忘记", "again"], ["认识", "good"], ["完成", "done"]].map(([t, ev]) =>
       h("button", { class: "btn ghost sm", "data-sfx": "none", onclick: () => sfx.play(ev, { force: true }) }, t)), "sub"),
   ];
@@ -117,62 +118,122 @@ export async function mount(root) {
   renderFonts();
   api("fonts").then((d) => { fontData = d; app.info.user_fonts = d.user; renderFonts(); }).catch(() => {});
 
+  // ---- 局域网同步 ----
+  const win = app.info.platform === "win32";
+  const codeEl = h("span", { class: "sync-code" });
+  const peersEl = h("div", { class: "sync-peers" });
+  const ago = (t, now) => { const d = now - t; return d < 60 ? "刚刚" : d < 3600 ? `${Math.floor(d / 60)} 分钟前` : d < 86400 ? `${Math.floor(d / 3600)} 小时前` : "很久以前"; };
+  const paintPeers = (st) => {
+    if (!s.lan_sync) return fill(peersEl, h("span", { text: "打开局域网同步后，这里会显示找到的设备。" }));
+    if (st?.error) return fill(peersEl, h("span", { class: "bad", text: st.error }));
+    const list = st?.peers || [];
+    if (!list.some((p) => p.online)) {
+      fill(peersEl, h("span", { text: "正在找同一个 Wi-Fi 下的设备… 另一台设备也要打开小梦的词书和局域网同步，并填同一个同步码。一直找不到的话：学校、咖啡店这类公共 Wi-Fi 常常不让设备之间互相连接，可以改用手机热点，或者用下面的进度文件。" }));
+    } else fill(peersEl);
+    list.forEach((p) => peersEl.append(h("div", { class: "peer" + (p.online ? "" : " away") },
+      h("span", { class: "dot" + (p.error ? " bad" : p.online ? " on" : "") }),
+      h("b", { text: p.name }),
+      h("span", { text: p.syncing ? "正在同步…" : p.error ? p.error : p.last_ok ? `${ago(p.last_ok, st.now)}同步过${p.online ? "" : " · 现在不在线"}` : p.pending ? "找到了，马上同步" : "已连上" }))));
+  };
+  const paintSync = () => {
+    codeEl.textContent = s.sync_code ? s.sync_code.match(/.{1,4}/g).join(" - ") : "打开后自动生成";
+    syncRows.forEach((r) => r.classList.toggle("off", !s.lan_sync));
+    paintPeers(null);
+  };
+  const editCode = () => {
+    const input = h("input", { class: "big-input sync-input", maxlength: 19, placeholder: "例如 K7Q2 - M9XD", spellcheck: "false", autocomplete: "off", "aria-label": "同步码" });
+    openLayer("modal", (close) => {
+      const ok = async () => {
+        const v = input.value.toUpperCase().replace(/[^0-9A-Z]/g, "");
+        if (v.length < 6) { toast("同步码要 6~16 位字母或数字"); return input.focus(); }
+        await set({ sync_code: v, lan_sync: true }, true);
+        toast("已换成新的同步码");
+        close();
+      };
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); });
+      setTimeout(() => input.focus(), 60);
+      return [
+        h("div", { class: "modal-head" }, h("div", {}, h("span", { class: "label", text: "SYNC CODE · 同步码" }), h("h3", { class: "h2", style: { "margin-top": "10px" }, text: "填另一台设备的同步码" })),
+          h("button", { class: "icon-btn", "aria-label": "关闭", html: icons.close, onclick: close })),
+        h("div", { class: "modal-body" }, input,
+          h("p", { class: "note", text: "在另一台设备的「设置 → 同步」里能看到它的同步码，照着填进来（不分大小写，横杠和空格可以不填）。两边同步码一样才会互相同步。" })),
+        h("div", { class: "modal-foot" }, h("button", { class: "btn ghost sm", onclick: close }, "取消"), h("button", { class: "btn sm", onclick: ok }, "确定")),
+      ];
+    }, { width: "520px" });
+  };
+  const syncRows = [
+    row("同步码", "在一台设备上打开局域网同步会自动生成一个同步码；另一台设备点「填同步码」，填一样的就行。同步码不一样的设备互相看不到。", [codeEl, act("填同步码…", editCode)], "sub"),
+    row("附近的设备", peersEl, null, "sub"),
+  ];
+  syncs.push(paintSync);
+  let syncTimer = 0, alive = true;
+  const pollSync = async () => {
+    if (!alive) return;
+    if (s.lan_sync) { try { paintPeers(await api("sync_status")); } catch { /* 下次再看 */ } }
+    syncTimer = setTimeout(pollSync, 2000);
+  };
+
   root.append(h("div", { class: "page-pad scroll", style: { height: "100%" } }, h("div", { class: "settings" },
     h("div", { class: "page-head" }, h("div", { class: "rise" }, h("span", { class: "label", html: "<b>04</b> / SETTINGS<span class=\"sep\">·</span>设置" }), h("h2", { class: "h2", text: "按自己的节奏来" }))),
+    // 每组里同类控件放在一起：滑块 → 选项 → 开关 → 按钮
     group(1, "STUDY · 学习",
       row("每天新词", "每天最多学多少个没见过的词。新词越多，之后每天要复习的也越多。", slider("new_per_day", 0, 100, 5, (v) => `${Math.round(v)} 个`)),
       row("每天复习上限", "到期的词太多时，每天最多复习这么多，剩下的顺延。", slider("review_per_day", 50, 1000, 50, (v) => `${Math.round(v)} 个`)),
       row("期望保持率", "复习时希望还记得的概率。调高记得更牢，但复习更频繁；一般 85%~92% 比较省力。", slider("retention", 70, 97, 1, (v) => `${Math.round(v * 100)}%`, 100)),
-      row("新词顺序", "自己添加和导入的词总是排在词书前面。", seg("order", [["freq", "常用词优先"], ["random", "随机"], ["alpha", "字母顺序"]])),
-      row("一天从几点开始", "熬夜到凌晨时，这个时间之前都算作前一天。", slider("day_start", 0, 8, 1, (v) => `${Math.round(v)}:00`))),
+      row("一天从几点开始", "熬夜到凌晨时，这个时间之前都算作前一天。", slider("day_start", 0, 8, 1, (v) => `${Math.round(v)}:00`)),
+      row("新词顺序", "自己添加和导入的词总是排在词书前面。", seg("order", [["freq", "常用词优先"], ["random", "随机"], ["alpha", "字母顺序"]]))),
     group(2, "VOICE · 发音",
-      row("自动朗读", "单词出现时自动读一遍。关掉后，显示答案时才读。", flag("autoplay", "自动朗读")),
       row("发音来源", "内置语音：程序自带的合成语音，词书里的英语和日语单词都有，不用联网，也不用给系统装语音包。在线真人：有道词典的发音，听过一次就存在本机。" + (android ? "系统语音：手机自带的文字转语音（TTS）。" : "系统语音：Windows 自带的朗读，需要装了对应语言的语音。") + "选中的来源没有某个词时，会自动换下一种。",
         seg("voice", [["builtin", "内置语音"], ["online", "在线真人"], ["system", "系统语音"]])),
-      row("联网补充", "内置语音包里没有的词（比如自己加的生词）联网取一次发音并存下来，之后离线也能读。", flag("online_fallback", "联网补充")),
       row("在线发音口音", null, seg("accent", [["us", "美音"], ["uk", "英音"]])),
+      row("自动朗读单词", "单词出现时自动读一遍。关掉后，显示答案时才读。", flag("autoplay", "自动朗读单词")),
+      row("自动朗读例句", "显示答案时，等单词读完再接着读第一条例句。要打开「词典」里的「显示例句」。例句发音第一次要联网取，之后存在本机。", flag("autoplay_example", "自动朗读例句")),
+      row("联网补充", "内置语音包里没有的词（比如自己加的生词）联网取一次发音并存下来，之后离线也能读。", flag("online_fallback", "联网补充")),
       row("试听", null, [act("英语 · vocabulary", () => speak("vocabulary", "en")), act("日语 · 勉強", () => speak("勉強", "ja"))])),
     group(2.5, "DICTIONARY · 词典",
       row("英语单词的释义", "英中：中文释义（ECDICT 英汉词典）。日英：日语释义（EJDict 英和辞典），例句也优先显示日语译文。没有日语释义的词仍显示中文。",
         seg("gloss_en", [["zh", "英中"], ["ja", "日英"]])),
       row("日语单词的释义", "中日：中文释义（主要来自维基词典，少数是程序自动匹配的，会标出来）。英日：英文释义（JMdict），例句显示英文译文。",
         seg("gloss_ja", [["zh", "中日"], ["en", "英日"]])),
+      row("显示例句", android || matchMedia("(max-width: 720px)").matches ? "复习时在释义下面显示例句。" : "复习时在右侧显示例句。", flag("show_examples", "显示例句")),
       row("词根记忆", "英语单词显示词根拆分和同根词，比如 transport = trans-（穿过）+ port（运送）。只收词源对得上的拆法，大约三成考试词汇有。在复习时的释义下面和词库的单词详情里显示。",
         flag("show_roots", "词根记忆")),
       row("近义词、反义词", "英语单词显示常用的近义词和反义词（来自维基词典和 WordNet），显示位置同上。", flag("show_related", "近义词、反义词")),
       row("专业领域释义", "显示「[计] 专有权」「[医] …」这类计算机、医学、经济等专业用法。默认不显示。", flag("show_domain", "专业领域释义"))),
     group(3, "LOOK · 外观",
-      row("暗色模式", "也可以随时点右上角的月亮 / 太阳图标切换。", toggle(isDark, (v) => set({ theme: v ? "dark" : "light" }, true), "暗色模式")),
-      row("跟随系统明暗", "打开后，系统切到深色时自动变暗。", toggle(() => s.theme === "auto", (v) => set({ theme: v ? "auto" : (isDark() ? "dark" : "light") }, true), "跟随系统明暗")),
       row("主题", "简约白是柔和的白底、圆角卡片和无衬线字体；朱橙是纸白配朱红线条和斜切色块。两种都可以配暗色模式。", seg("palette", [["vermilion", "朱橙"], ["silver", "简约白"]])),
       row("动画", "觉得动画多或者电脑比较慢，可以减弱。", seg("motion", [["full", "完整"], ["reduced", "减弱"]])),
-      row("显示例句", "复习时在右侧显示例句。", flag("show_examples", "显示例句")),
-      ...(app.info.can_restart && app.info.platform === "win32" ? [
-        row("画面渲染方式",
-          "自动：N 卡、A 卡用 OpenGL，其他显卡用 D3D11。如果偶尔整个窗口空白闪一下（开着 Wallpaper Engine 这类动态壁纸时更容易出现），可以手动换另一种试试。改完要重启，重启后会让你确认画面是否正常，不确认 15 秒后自动换回；万一打不开，下次启动也会自动换回。",
-          seg("render", [["auto", "自动"], ["d3d11", "D3D11"], ["opengl", "OpenGL"]], askRestart)),
-        row("渲染显卡",
-          "双显卡电脑上用哪张显卡画界面：高性能是独立显卡，省电是核显。和 Windows「设置 → 显示 → 图形」里给程序选显卡是同一个设置，选回「自动」会恢复原样。只有一张显卡的电脑选哪个都一样。台式机的显示器一般插在独显上，选「省电」可能打不开，程序会自动换回。改完要重启。",
-          seg("gpu", [["auto", "自动"], ["high", "高性能"], ["low", "省电"]], askRestart)),
-        row("当前使用", null, gpuName)] : []),
-      ),
+      row("暗色模式", "也可以随时点右上角的月亮 / 太阳图标切换。", toggle(isDark, (v) => set({ theme: v ? "dark" : "light" }, true), "暗色模式")),
+      row("跟随系统明暗", "打开后，系统切到深色时自动变暗。", toggle(() => s.theme === "auto", (v) => set({ theme: v ? "auto" : (isDark() ? "dark" : "light") }, true), "跟随系统明暗"))),
+    app.info.can_restart && win ? group(3.2, "DISPLAY · 画面渲染",
+      row("画面渲染方式",
+        "自动：N 卡、A 卡用 OpenGL，其他显卡用 D3D11。如果偶尔整个窗口空白闪一下（开着 Wallpaper Engine 这类动态壁纸时更容易出现），可以手动换另一种试试。改完要重启，重启后会让你确认画面是否正常，不确认 15 秒后自动换回；万一打不开，下次启动也会自动换回。",
+        seg("render", [["auto", "自动"], ["d3d11", "D3D11"], ["opengl", "OpenGL"]], askRestart)),
+      row("渲染显卡",
+        "双显卡电脑上用哪张显卡画界面：高性能是独立显卡，省电是核显。和 Windows「设置 → 显示 → 图形」里给程序选显卡是同一个设置，选回「自动」会恢复原样。只有一张显卡的电脑选哪个都一样。台式机的显示器一般插在独显上，选「省电」可能打不开，程序会自动换回。改完要重启。",
+        seg("gpu", [["auto", "自动"], ["high", "高性能"], ["low", "省电"]], askRestart)),
+      row("当前使用", null, gpuName)) : null,
     group(3.5, "FONT · 字体", fontsBox),
     group(4, android ? "SOUND · 音效与震动" : "SOUND · 音效",
       row("按键音效", "显示答案、评分、点按钮时给一点声音反馈。", toggle(() => s.sfx, async (v) => { await set({ sfx: v }, true); if (v) sfx.play("good", { force: true }); }, "按键音效")),
-      sfxRows,
       android ? row("震动反馈", "显示答案、评分、点按钮时手机轻轻震一下，用的是手机的震动马达，和按键音效分开设置。忘记、认识、背完一组的震感各不相同。",
-        toggle(() => s.haptic, async (v) => { await set({ haptic: v }, true); if (v) sfx.buzz("good"); }, "震动反馈")) : null),
+        toggle(() => s.haptic, async (v) => { await set({ haptic: v }, true); if (v) sfx.buzz("good"); }, "震动反馈")) : null,
+      sfxRows),
+    group(4.5, "SYNC · 同步",
+      row("局域网同步", "手机和电脑连着同一个 Wi-Fi、都打开小梦的词书时，自动合并两边的学习进度，在哪台设备上背都行。合并规则和进度文件一样，删掉的词、撤销的复习也会同步。数据只在局域网里直接传，不经过任何服务器。" +
+        (win ? "第一次打开时 Windows 可能会问是否允许程序访问网络，请选「允许」。" : ""),
+        toggle(() => s.lan_sync, (v) => set({ lan_sync: v }, true), "局域网同步")),
+      syncRows),
     group(5, "DATA · 数据",
       row("进度文件", "把学习进度存成一个文件（.xmdb）。换设备时把文件拷过去（U 盘、网盘、聊天软件都行），在新设备上导入就能接着背。两边都有进度时会合并，不会丢。",
         [act("导出进度文件", () => exportFile()), act("导入…", () => importProgress())]),
       row("进度密钥", "不方便传文件时，也可以把进度变成一串文字复制过去（学得越多越长）。", act("生成密钥", () => exportKey())),
-      android ? [] : row("数据位置", null, h("span", { class: "path", text: app.info.data_dir || "" })),
-      android ? [] : row("打开数据文件夹", "学习记录都在这个文件夹的 user.db 里，复制它也是完整备份。", act("打开文件夹", async () => {
-        try { const r = await api("open_data_dir"); if (!r.opened) { await copyText(r.path); toast("路径已复制：" + r.path, 5000); } } catch (e) { fail(e); } })),
       row("备份", android ? "存一份当前的学习记录到手机的“下载/小梦的词书”文件夹。" : "在数据文件夹的 backups 里存一份当前的学习记录。", act("立即备份", async () => { try { toast("已备份到 " + (await api("backup")).path, 5000); } catch (e) { fail(e); } })),
       row("导出", "把词库和学习进度导出成 CSV 表格（Excel 可以直接打开）。", act("导出 CSV", async () => { try { toast("已导出到 " + (await api("export")).path, 5000); } catch (e) { fail(e); } })),
+      android ? [] : row("数据文件夹", h("span", {}, "学习记录都在这个文件夹的 user.db 里，复制它也是完整备份。", h("span", { class: "path", text: app.info.data_dir || "" })), act("打开文件夹", async () => {
+        try { const r = await api("open_data_dir"); if (!r.opened) { await copyText(r.path); toast("路径已复制：" + r.path, 5000); } } catch (e) { fail(e); } })),
       row("清空学习记录", "词库保留，所有学习进度归零。清空前会自动备份一次。", act("清空…", async () => {
-        if (!(await ask("清空全部学习记录？", "所有单词都会回到“未学”，统计也会清零。清空前会自动备份，可以从备份文件恢复。", { ok: "清空", danger: true }))) return;
+        if (!(await ask("清空全部学习记录？", "所有单词都会回到“未学”，统计也会清零。清空前会自动备份，可以从备份文件恢复。" + (s.lan_sync ? "开着局域网同步时，另一台设备上的进度也会一起清空。" : ""), { ok: "清空", danger: true }))) return;
         try { const r = await api("reset_progress", { confirm: "RESET" }); refreshNav(); toast("已清空。备份在 " + r.path, 6000); } catch (e) { fail(e); } }, "danger"))),
     group(5.5, "UPDATE · 更新",
       row("自动检查更新", "每次打开程序时联网看一下 GitHub 上有没有新版本。只读取版本号，不上传任何数据。", flag("update_check", "自动检查更新")),
@@ -192,9 +253,11 @@ export async function mount(root) {
         "内置语音：英语 <b>Piper · LJ Speech</b>（公有领域数据集）　日语 <b>Open JTalk · HTS voice “Mei”</b>（名古屋工业大学，CC BY 3.0）<br>" +
         "字体：Noto Serif SC / Noto Serif JP、Inter、JetBrains Mono（SIL OFL 1.1）" })))));
 
+  paintSync();
+  pollSync();
   const onOutside = () => { Object.assign(s, app.settings); syncs.forEach((fn) => fn()); };
   document.addEventListener("shici-settings", onOutside);
-  return () => document.removeEventListener("shici-settings", onOutside);
+  return () => { alive = false; clearTimeout(syncTimer); document.removeEventListener("shici-settings", onOutside); };
 }
 
 // 复制到剪贴板：桌面版交给后台（最可靠），否则用浏览器接口

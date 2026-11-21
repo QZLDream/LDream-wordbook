@@ -58,7 +58,17 @@ export async function mount(root, query) {
     refreshNav(c);
   }
 
-  const speakCard = () => S.card && speak(S.card.term, S.card.lang);
+  const speakCard = () => { if (S.card) S.wordSay = speak(S.card.term, S.card.lang); };
+  // 自动朗读例句：翻开答案后，等单词读完再读第一条例句。系统朗读不知道什么时候读完，按 1.1 秒估
+  async function sayExample(stage) {
+    const btn = stage.querySelector(".ex-say");
+    if (!btn) return;
+    const t0 = performance.now();
+    const waited = await (S.wordSay || Promise.resolve(true)).catch(() => false);
+    const rest = (waited ? 0 : Math.max(0, 1100 - (performance.now() - t0))) + 380;
+    await new Promise((r) => setTimeout(r, rest));
+    if (S.stage === stage && S.revealed) btn.click();
+  }
 
   // ---------------------------------------------------------------- 出牌
   async function show(card, back = false) {
@@ -151,6 +161,7 @@ export async function mount(root, query) {
         { duration: 820, easing: EASE });
     }
     if (!app.settings.autoplay) speakCard();
+    if (app.settings.autoplay_example) sayExample(stage);
   }
 
   // ---------------------------------------------------------------- 评分

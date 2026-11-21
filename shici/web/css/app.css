@@ -239,6 +239,7 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 .rv-tag { height: 14px; }
 .term { font: 700 clamp(56px, 9vw, 132px)/1.08 var(--serif); letter-spacing: -.015em; margin: 18px 0 6px; overflow-wrap: normal; max-width: 100%; }
 .term .w { display: inline-block; white-space: nowrap; }
+.term:not([lang="ja"]) { padding-bottom: .2em; }  /* 衬线体 p g j y 的下伸笔画会伸出行框，留出位置，免得压到下面的音标 */
 .term[lang="ja"] { font-family: var(--serif-ja); letter-spacing: .02em; font-size: clamp(52px, 8vw, 116px); }
 .term.long { font-size: clamp(40px, 6vw, 88px); }
 .rv-stage.revealed .term { font-size: clamp(40px, 5vw, 76px); margin: 14px 0 4px; }
@@ -502,6 +503,18 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 .note { font-size: 13px; color: var(--mute); line-height: 1.7; margin-top: 12px; }
 .set-row.sub { padding-left: 18px; border-left: 2px solid var(--line); }
 .set-row.off { opacity: .45; pointer-events: none; }
+/* 局域网同步 */
+.sync-code { font: 600 19px/1 var(--mono); letter-spacing: .1em; white-space: nowrap; }
+.set-row .txt .sync-peers { display: flex; flex-direction: column; gap: 9px; margin-top: 8px; }
+.set-row .txt .sync-peers span { display: inline; margin: 0; }
+.sync-peers .peer { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--mute); }
+.set-row .txt .peer b { display: inline; font-size: 14px; color: var(--ink); }
+.sync-peers .peer.away { opacity: .6; }
+.sync-peers .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); flex: none; }
+.sync-peers .dot.on { background: #3aa76d; }
+.sync-peers .dot.bad { background: var(--accent); }
+.set-row .txt .sync-peers > .bad { color: var(--accent); }
+.sync-input { text-align: center; font-family: var(--mono); letter-spacing: .14em; text-transform: uppercase; }
 #themeBtn svg { transition: transform .7s var(--ease); }
 #themeBtn:hover svg { transform: rotate(40deg); }
 @media (max-width: 1240px) { .brand-sub { display: none; } }

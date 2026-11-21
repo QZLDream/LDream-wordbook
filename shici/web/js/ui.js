@@ -227,8 +227,8 @@ export function exampleEl(ex, term, lang = "en") {
     e.stopPropagation();
     say.classList.add("playing");
     const { speak } = await import("./api.js");
-    await speak(ex.en, lang, "sentence");
-    setTimeout(() => say.classList.remove("playing"), ms(1400));
+    const waited = await speak(ex.en, lang, "sentence");
+    setTimeout(() => say.classList.remove("playing"), waited ? 0 : ms(1400));
   });
   p.append(" ", say);
   // 机器翻译的译文后面标一个小小的「机翻」

@@ -23,6 +23,10 @@ def start(files_dir, bridge):
     core.url_opener = lambda url: bridge.openUrl(url)
     core.clipboard = lambda text: bridge.copy(text)
     core.file_saver = lambda path: bridge.saveFile(path)
+    try:
+        core.device_name = str(bridge.deviceName() or "")[:40]  # 局域网同步时电脑上显示的手机名字
+    except Exception:
+        core.device_name = "安卓手机"
     _server = Server(core)
     _server.start()
     return _server.url

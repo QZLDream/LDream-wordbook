@@ -11,6 +11,7 @@ import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -18,6 +19,7 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.speech.tts.TextToSpeech;
 import android.util.Base64;
 import android.view.View;
@@ -274,6 +276,28 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    // 局域网同步要收其他设备的广播：不少手机为了省电默认会丢掉 Wi-Fi 广播包，程序在前台时申请收下来
+    private WifiManager.MulticastLock multicastLock;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        try {
+            if (multicastLock == null) {
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                multicastLock = wm.createMulticastLock("xmcs-lan-sync");
+                multicastLock.setReferenceCounted(false);
+            }
+            multicastLock.acquire();
+        } catch (Exception ignored) { }
+    }
+
+    @Override
+    protected void onPause() {
+        try { if (multicastLock != null) multicastLock.release(); } catch (Exception ignored) { }
+        super.onPause();
+    }
+
     @Override
     protected void onDestroy() {
         if (tts != null) tts.shutdown();
@@ -288,6 +312,19 @@ public class MainActivity extends AppCompatActivity {
         public void openUrl(String url) { runOnUiThread(() -> MainActivity.this.openUrl(url)); }
 
         public void copy(String text) { copyText(text); }
+
+        /** 局域网同步时给电脑看的名字：优先用系统设置里的“设备名称”（比如 Xiaomi 17 Pro），没有就用型号 */
+        public String deviceName() {
+            try {
+                String n = Settings.Global.getString(getContentResolver(), "device_name");
+                if (n != null && !n.trim().isEmpty()) return n.trim();
+            } catch (Exception ignored) { }
+            try {
+                String n = Settings.Secure.getString(getContentResolver(), "bluetooth_name");
+                if (n != null && !n.trim().isEmpty()) return n.trim();
+            } catch (Exception ignored) { }
+            return Build.MANUFACTURER + " " + Build.MODEL;
+        }
 
         public String saveFile(String path) {
             try {

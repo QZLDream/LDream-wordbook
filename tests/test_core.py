@@ -662,3 +662,39 @@ def test_version_compare_pads_missing_parts():
     assert Core._ver("1.0") == Core._ver("1.0.0") == (1, 0, 0)
     assert Core._ver("1.0.1") > Core._ver("1.0")
     assert not Core._ver("1.0") > Core._ver("1.0.0")
+
+
+def test_sync_merge_events(core, tmp_path):
+    """局域网同步用的合并：删词、撤销、清空进度都要传到另一台设备，而且不会被对方同步回来。"""
+    _study(core, days=1)
+    other = Core(tmp_path / "phone", clock=core.clock)
+    sync = lambda a, b: (b._merge_progress(a._progress_payload()), a._merge_progress(b._progress_payload()))  # noqa: E731
+    count = lambda c, t: c.db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]  # noqa: E731
+    sync(core, other)
+    assert count(other, "cards") == count(core, "cards") > 0 and count(other, "logs") == count(core, "logs")
+    # 手机上背一个词再撤销：电脑上不能留下这次复习
+    core.clock_obj.add(minutes=5)
+    n = other.call("next")
+    other.call("answer", {"id": n["card"]["id"], "rating": 3})
+    sync(core, other)
+    logs = count(core, "logs")
+    other.call("undo")
+    sync(core, other)
+    assert count(core, "logs") == count(other, "logs") == logs - 1
+    term = other.db.execute("SELECT term FROM items WHERE id=?", (n["card"]["id"],)).fetchone()[0]
+    a = core.db.execute("SELECT c.last_review FROM cards c JOIN items i ON i.id=c.item_id WHERE i.term=?", (term,)).fetchone()
+    b = other.db.execute("SELECT last_review FROM cards WHERE item_id=?", (n["card"]["id"],)).fetchone()
+    assert (a and a[0]) == (b and b[0])
+    # 电脑上删一个学过的词：手机上也删掉，再同步也不会回来
+    victim = core.db.execute("SELECT i.id, i.term FROM items i JOIN cards c ON c.item_id=i.id LIMIT 1").fetchone()
+    core.call("item_delete", {"ids": [victim["id"]]})
+    sync(other, core)
+    sync(core, other)
+    for c in (core, other):
+        assert not c.db.execute("SELECT 1 FROM items WHERE term=?", (victim["term"],)).fetchone()
+    # 手机上清空进度：电脑上也清空
+    core.clock_obj.add(minutes=1)
+    other.call("reset_progress", {"confirm": "RESET"})
+    sync(other, core)
+    assert count(core, "cards") == count(other, "cards") == 0 and count(core, "logs") == 0
+    other.close()

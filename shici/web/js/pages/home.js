@@ -38,7 +38,7 @@ export async function mount(root) {
   const q = (name, n, i) => { const el = h("span", { class: "num", text: "0" }); countUp(el, n); return h("div", { class: "rise", style: { "--i": i } }, h("span", { class: "label", text: name }), el); };
   // 名称里“ · 30 天”这类补充说明手机上放不下，单独包一层（phone.css 里隐藏）
   const strip = (name, text) => { const [main, more] = name.split(" · ");
-    return h("div", {}, h("span", { class: "label" }, main, more ? h("span", { class: "more", text: " · " + more }) : null), h("span", { class: "num", text })); };
+    return h("div", {}, h("span", { class: "label" }, main, more ? h("span", { class: "aux", text: " · " + more }) : null), h("span", { class: "num", text })); };
   const streakEl = h("span", { text: "0" });
 
   root.append(h("div", { class: "home" },

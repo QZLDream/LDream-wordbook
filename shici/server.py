@@ -96,7 +96,9 @@ class Server:
 
     def start(self) -> None:
         threading.Thread(target=self.httpd.serve_forever, name="shici-http", daemon=True).start()
+        self.core.sync.apply()  # 设置里开了局域网同步的话，开始找同一个 Wi-Fi 下的其他设备
 
     def stop(self) -> None:
+        self.core.sync.stop()
         self.httpd.shutdown()
         self.httpd.server_close()

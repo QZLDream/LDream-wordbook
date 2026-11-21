@@ -69,6 +69,15 @@ CREATE TABLE IF NOT EXISTS logs(
 CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts);
 CREATE INDEX IF NOT EXISTS idx_logs_item ON logs(item_id);
 CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT NOT NULL);
+-- 局域网同步用的“事件”：删掉的词、移出计划的词书 / 词表、撤销掉的复习、清空进度。
+-- 两台设备合并进度时靠它知道哪些东西是被故意删掉的，免得又从对方那里同步回来。
+CREATE TABLE IF NOT EXISTS sync_events(
+    kind TEXT NOT NULL,   -- item 词条 / source 词书或词表 / undo 撤销的复习 / reset 清空进度
+    key TEXT NOT NULL,    -- item: 语言\t单词；source: book:toefl 这类；undo: 语言\t单词\t复习时间；reset: 空
+    val INTEGER NOT NULL, -- source: 1 加入 / 0 移出；其他: 0
+    ts INTEGER NOT NULL,
+    PRIMARY KEY(kind, key)
+);
 """
 
 DEFAULTS = {
@@ -77,6 +86,7 @@ DEFAULTS = {
     "retention": 0.90,      # 期望记忆保持率
     "order": "freq",        # 新词顺序：freq 常用优先 / random 随机 / alpha 字母序
     "autoplay": True,       # 出现单词时自动朗读
+    "autoplay_example": False,  # 显示答案时自动朗读第一条例句（单词读完之后）
     "voice": "builtin",     # builtin 内置语音包（离线）/ online 在线真人发音 / system 系统语音
     "online_fallback": True,  # 内置语音包里没有的词（自己加的生词）联网取发音并缓存
     "accent": "us",         # 在线发音口音 us / uk
@@ -99,6 +109,8 @@ DEFAULTS = {
     "update_check": True,   # 启动时联网检查有没有新版本（只访问 GitHub 的发布页接口）
     "render": "auto",       # 画面渲染方式（Windows 桌面版）：auto 自动（N 卡 / A 卡用 OpenGL）/ d3d11 / opengl
     "gpu": "auto",          # 渲染用哪张显卡（Windows 双显卡）：auto 系统决定 / high 高性能 / low 省电
+    "lan_sync": False,      # 局域网同步：同一个 Wi-Fi 下的手机和电脑自动合并进度
+    "sync_code": "",        # 同步码：两台设备填一样的才会互相同步
 }
 RELEASES_API = "https://api.github.com/repos/QZLDream/LDream-wordbook/releases/latest"
 LINKS = {
@@ -153,13 +165,16 @@ class Core:
         self.look_changed = None   # 桌面外壳注入：主题 / 明暗变了（参数：是否暗色, 是否简约白），用来同步窗口底色
         self.display_reverted = False  # 上次的画面设置没能正常打开，这次已自动换回默认
         self.url_opener = None  # 桌面外壳注入：url_opener(url) 用系统浏览器打开网页
+        self.device_name = ""   # 局域网同步时给对方看的设备名；空 = 用电脑名
+        from .lansync import LanSync
+        self.sync = LanSync(self)
 
     # ------------------------------------------------------------ 调度入口
     def call(self, name: str, params: dict | None = None):
         fn = getattr(self, "api_" + name, None)
         if not fn:
             raise ApiError(f"未知接口: {name}")
-        if name == "speak":  # 朗读可能要联网取音频，不占用数据库锁，免得卡住别的操作
+        if name in ("speak", "sync_status"):  # 朗读可能要联网取音频、同步状态随时要看：不占用数据库锁，免得卡住别的操作
             return fn(params or {})
         with self.lock:
             try:
@@ -167,6 +182,11 @@ class Core:
             except Exception:
                 self.db.rollback()
                 raise
+
+    # ------------------------------------------------------------ 同步事件
+    def _event(self, kind: str, key: str, val: int = 0, ts: int | None = None) -> None:
+        self.db.execute("REPLACE INTO sync_events(kind, key, val, ts) VALUES(?,?,?,?)",
+                        (kind, key, val, int(self.clock()) if ts is None else ts))
 
     # ------------------------------------------------------------ 时间
     def _day_start(self, ts: float | None = None) -> float:
@@ -340,6 +360,9 @@ class Core:
         log = self.db.execute("SELECT * FROM logs WHERE id=?", (self._undo.pop(),)).fetchone()
         if not log:
             return {"undone": False}
+        it0 = self.db.execute("SELECT lang, term FROM items WHERE id=?", (log["item_id"],)).fetchone()
+        if it0:
+            self._event("undo", f"{it0['lang']}\t{it0['term']}\t{log['ts']}")
         if log["prev"]:
             prev = json.loads(log["prev"])
             cols = ",".join(prev)
@@ -400,6 +423,7 @@ class Core:
             raise ApiError("没有这本词书")
         lang, words = self.dict.book_words(b["id"])
         added, existed = self._insert_items(lang, [{"term": w, "rank": r} for w, r in words], "book:" + b["id"], prio=1)
+        self._event("source", "book:" + b["id"], 1)
         self.db.commit()
         return {"added": added, "existed": existed}
 
@@ -408,6 +432,10 @@ class Core:
         src = p.get("id", "")
         if ":" not in src and src != "manual":
             src = "book:" + src
+        self._event("source", src, 0)
+        return self._remove_source(src)
+
+    def _remove_source(self, src: str) -> dict:
         ids = [r[0] for r in self.db.execute("SELECT item_id FROM item_sources WHERE source=?", (src,))]
         self.db.execute("DELETE FROM item_sources WHERE source=?", (src,))
         removed = self.db.execute(
@@ -542,6 +570,8 @@ class Core:
     def api_item_delete(self, p: dict) -> dict:
         ids = [int(i) for i in p.get("ids") or []]
         marks = ",".join("?" * len(ids))
+        for r in self.db.execute(f"SELECT lang, term FROM items WHERE id IN ({marks})", ids).fetchall():
+            self._event("item", f"{r['lang']}\t{r['term']}")
         for table, col in (("cards", "item_id"), ("logs", "item_id"), ("item_sources", "item_id"), ("items", "id")):
             self.db.execute(f"DELETE FROM {table} WHERE {col} IN ({marks})", ids)
         self.db.commit()
@@ -579,6 +609,8 @@ class Core:
         if not entry and not definition:
             raise ApiError("词典里没有这个词，请填写释义")
         added, _ = self._insert_items(lang, [row], "manual", prio=0)
+        self._event("source", "manual", 1)
+        self._event("item", f"{lang}\t{term}", 1)  # 删掉过又加回来：告诉其他设备这个词又要了
         if p.get("note"):
             self.db.execute("UPDATE items SET note=? WHERE lang=? AND term=?", (p["note"].strip(), lang, term))
         self.db.commit()
@@ -626,6 +658,10 @@ class Core:
         for lang, rows in by_lang.items():
             a, e = self._insert_items(lang, rows, "list:" + name, prio=0)
             added, existed = added + a, existed + e
+        self._event("source", "list:" + name, 1)
+        ts = int(self.clock())
+        self.db.executemany("REPLACE INTO sync_events(kind, key, val, ts) VALUES('item', ?, 1, ?)",
+                            [(f"{lang}\t{r['term']}", ts) for lang, rows in by_lang.items() for r in rows])
         self.db.commit()
         return {"added": added, "existed": existed, "name": name}
 
@@ -758,6 +794,10 @@ class Core:
             elif k in choices:
                 if v not in choices[k]:
                     raise ApiError(f"{k} 的取值不对")
+            elif k == "sync_code":
+                v = re.sub(r"[^0-9A-Z]", "", str(v or "").upper())
+                if not 6 <= len(v) <= 16:
+                    raise ApiError("同步码要 6~16 位字母或数字")
             elif k in ("font_title", "font_body"):
                 v = str(v or "")[:120]
                 kind, _, val = v.partition(":")
@@ -772,6 +812,12 @@ class Core:
         if "retention" in p:
             self.srs.set_retention(self.settings["retention"])
         self._apply_gloss()
+        if "lan_sync" in p or "sync_code" in p:
+            if self.settings["lan_sync"] and not self.settings["sync_code"]:
+                self.settings["sync_code"] = self.sync.new_code()
+                self.db.execute("REPLACE INTO settings(k, v) VALUES(?,?)", ("sync_code", json.dumps(self.settings["sync_code"])))
+                self.db.commit()
+            self.sync.apply()
         return {"settings": self.settings}
 
     def _apply_gloss(self) -> None:
@@ -921,6 +967,23 @@ class Core:
         密钥里有：学过的词和它们的记忆状态、复习记录、自己加的词/助记/例句/释义、计划里的词书、学习设置。
         没学过的词书单词不放进去（新设备上有同样的内置词典），所以密钥长度只跟学过多少有关。
         """
+        payload = self._progress_payload()
+        items, logs = payload["items"], payload["logs"]
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        packed = lzma.compress(raw, preset=9)
+        stats = {"words": sum(1 for it in items if it[9]), "logs": len(logs["i"])}
+        if p.get("as_file"):  # 进度文件：同样的数据，不转成文字，开头加一个标记
+            name = f"小梦的词书-进度-{datetime.fromtimestamp(self.clock()):%Y%m%d-%H%M}.xmdb"
+            data = FILE_MAGIC + packed
+            return {"filename": name, "data": base64.b64encode(data).decode("ascii"), "bytes": len(data), **stats}
+        key = KEY_PREFIX + base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
+        return {"key": key, "chars": len(key), **stats}
+
+    def _progress_payload(self) -> dict:
+        """进度数据（密钥、进度文件、局域网同步共用）。
+
+        "x" 是 1.0.2 加的补充信息（词条加入时间、删除 / 撤销 / 清空这些事件），旧版本读到会忽略。
+        """
         rows = self.db.execute(
             "SELECT i.*, c.state, c.due, c.stability, c.difficulty, c.data, c.reps, c.lapses, c.first_review, c.last_review "
             "FROM items i LEFT JOIN cards c ON c.item_id=i.id WHERE c.item_id IS NOT NULL OR i.prio=0 OR i.note!='' "
@@ -949,17 +1012,10 @@ class Core:
             logs["i"].append(index[r["item_id"]]); logs["t"].append(r["ts"] - last); last = r["ts"]
             logs["r"].append(r["rating"]); logs["m"].append(1 if r["mode"] == "spell" else 0)
             logs["e"].append(r["elapsed_ms"] // 100); logs["s"].append(r["state_before"]); logs["n"].append(r["was_new"])
-        payload = {"v": 1, "app": APP_NAME, "t": int(self.clock()), "settings": {k: self.settings[k] for k in STUDY_KEYS},
-                   "books": sorted(books), "items": items, "logs": logs}
-        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        packed = lzma.compress(raw, preset=9)
-        stats = {"words": sum(1 for it in items if it[9]), "logs": len(logs["i"])}
-        if p.get("as_file"):  # 进度文件：同样的数据，不转成文字，开头加一个标记
-            name = f"小梦的词书-进度-{datetime.fromtimestamp(self.clock()):%Y%m%d-%H%M}.xmdb"
-            data = FILE_MAGIC + packed
-            return {"filename": name, "data": base64.b64encode(data).decode("ascii"), "bytes": len(data), **stats}
-        key = KEY_PREFIX + base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
-        return {"key": key, "chars": len(key), **stats}
+        events = [[r["kind"], r["key"], r["val"], r["ts"]] for r in self.db.execute("SELECT * FROM sync_events")]
+        return {"v": 1, "app": APP_NAME, "t": int(self.clock()), "settings": {k: self.settings[k] for k in STUDY_KEYS},
+                "books": sorted(books), "items": items, "logs": logs,
+                "x": {"added": [r["added_at"] for r in rows], "events": events}}
 
     @staticmethod
     def _decode_progress(p: dict) -> dict:
@@ -1010,28 +1066,92 @@ class Core:
         """导入进度文件或进度密钥并和本机进度合并：每个词以最近复习过的那一边为准，复习记录取并集。导入前自动备份。"""
         d = self._decode_progress(p)
         backup = self.api_backup({})["path"]
+        res = self._merge_progress(d)
+        if p.get("settings", True):
+            self.api_settings_set({k: v for k, v in d.get("settings", {}).items() if k in STUDY_KEYS})
+        self._undo.clear()
+        return dict(res, backup=backup)
+
+    def _merge_progress(self, d: dict) -> dict:
+        """把另一台设备的进度合并进来（导入进度和局域网同步共用）。
+
+        规则：每个词的记忆状态以最近复习过的那一边为准；复习记录取并集；
+        对方删掉的词、移出计划的词书、撤销掉的复习、清空进度，按“谁后做的算谁”同步过来。
+        """
         now = int(self.clock())
+        x = d.get("x") or {}
+        # ---- 事件：两边各取最新的那条
+        mine = {(r["kind"], r["key"]): (r["val"], r["ts"]) for r in self.db.execute("SELECT * FROM sync_events")}
+        fresh = []  # 对方比本机新的事件，下面逐条照做
+        for kind, key, val, ts in x.get("events") or []:
+            if (kind, key) not in mine or ts > mine[(kind, key)][1]:
+                mine[(kind, key)] = (val, ts)
+                self._event(kind, key, val, ts)
+                fresh.append((kind, key, val, ts))
+        reset_ts = mine.get(("reset", ""), (0, 0))[1]
+        undone = {key for (kind, key) in mine if kind == "undo"}
+        gone_src = {key for (kind, key), (val, _) in mine.items() if kind == "source" and val == 0}
+        gone_items = {key for (kind, key), (val, _) in mine.items() if kind == "item" and val == 0}
+        item_id_of = lambda key: (lambda r: r["id"] if r else None)(  # noqa: E731
+            self.db.execute("SELECT id FROM items WHERE lang=? AND term=?", tuple(key.split("\t")[:2])).fetchone())
+        revert: set[int] = set()  # 本机还停在“被撤销的那次复习”上的词，要换回对方的状态
+        for kind, key, val, ts in fresh:
+            if kind == "reset":
+                self.db.execute("DELETE FROM cards WHERE last_review<=?", (ts,))
+                self.db.execute("DELETE FROM logs WHERE ts<=?", (ts,))
+                self._undo.clear()
+            elif kind == "source" and val == 0:
+                self._remove_source(key)
+            elif kind == "item" and val == 0:
+                iid = item_id_of(key)
+                row = iid and self.db.execute("SELECT i.added_at, c.last_review FROM items i LEFT JOIN cards c ON c.item_id=i.id "
+                                              "WHERE i.id=?", (iid,)).fetchone()
+                if row and row["added_at"] < ts and (row["last_review"] or 0) < ts:
+                    for table, col in (("cards", "item_id"), ("logs", "item_id"), ("item_sources", "item_id"), ("items", "id")):
+                        self.db.execute(f"DELETE FROM {table} WHERE {col}=?", (iid,))
+            elif kind == "undo":
+                iid = item_id_of(key)
+                if iid:
+                    t = int(key.split("\t")[2])
+                    self.db.execute("DELETE FROM logs WHERE item_id=? AND ts=?", (iid, t))
+                    if self.db.execute("SELECT 1 FROM cards WHERE item_id=? AND last_review=?", (iid, t)).fetchone():
+                        revert.add(iid)
+        # ---- 词书
         for bid in d["books"]:
-            if self.dict.book(bid):
+            if "book:" + bid not in gone_src and self.dict.book(bid):
                 lang, words = self.dict.book_words(bid)
-                self._insert_items(lang, [{"term": w, "rank": r} for w, r in words], "book:" + bid, prio=1)
-        ids: list[int] = []
+                self._insert_items(lang, [{"term": w, "rank": r} for w, r in words if f"{lang}\t{w}" not in gone_items],
+                                   "book:" + bid, prio=1)
+        # ---- 词条和记忆状态
+        added_at = x.get("added") or []
+        ids: list[int | None] = []
         added = updated = kept = 0
-        for lang, term, reading, definition, note, examples, prio, suspended, sources, card in d["items"]:
+        for n, (lang, term, reading, definition, note, examples, prio, suspended, sources, card) in enumerate(d["items"]):
+            key = f"{lang}\t{term}"
+            if card and (card[5] <= reset_ts or f"{key}\t{card[5]}" in undone):
+                card = None  # 对方这个状态是清空进度之前的，或者是被撤销掉的那次复习
             row = self.db.execute("SELECT * FROM items WHERE lang=? AND term=?", (lang, term)).fetchone()
             if not row:
+                dead = mine.get(("item", key))
+                born = max(added_at[n] if n < len(added_at) else 0, card[5] if card else 0)
+                if dead and dead[0] == 0 and dead[1] >= born:  # 这个词在本机（或第三台设备上）被删掉了，而且是在对方加入 / 复习之后
+                    ids.append(None)
+                    continue
                 entry = self.dict.lookup(lang, term)
                 self.db.execute("INSERT INTO items(lang, term, prio, rank, shuffle, added_at) VALUES(?,?,?,?,?,?)",
-                                (lang, term, prio, entry["rank"] if entry else 0, random.getrandbits(30), now))
+                                (lang, term, prio, entry["rank"] if entry else 0, random.getrandbits(30),
+                                 added_at[n] if n < len(added_at) and added_at[n] else now))
                 row = self.db.execute("SELECT * FROM items WHERE lang=? AND term=?", (lang, term)).fetchone()
                 added += 1
             item_id = row["id"]
             ids.append(item_id)
             for s in sources:
-                self.db.execute("INSERT OR IGNORE INTO item_sources VALUES(?,?)", (item_id, s))
+                if s not in gone_src:
+                    self.db.execute("INSERT OR IGNORE INTO item_sources VALUES(?,?)", (item_id, s))
             local = self.db.execute("SELECT last_review FROM cards WHERE item_id=?", (item_id,)).fetchone()
-            newer = local is None or (card is not None and card[5] > local["last_review"])
-            if newer:  # 密钥里的更新（或本机没学过）：词条内容和记忆状态都用密钥里的
+            stuck = item_id in revert or (local is not None and f"{key}\t{local['last_review']}" in undone)
+            newer = local is None or stuck or (card is not None and card[5] > local["last_review"])
+            if newer:  # 对方的更新（或本机没学过）：词条内容和记忆状态都用对方的
                 self.db.execute("UPDATE items SET reading=?, definition=?, note=?, examples=?, prio=MIN(prio, ?), suspended=? WHERE id=?",
                                 (reading, definition, note or row["note"], json.dumps(examples or json.loads(row["examples"]), ensure_ascii=False),
                                  prio, suspended, item_id))
@@ -1042,11 +1162,17 @@ class Core:
                     self.db.execute("REPLACE INTO cards(item_id, state, due, stability, difficulty, data, reps, lapses, first_review, last_review) "
                                     "VALUES(?,?,?,?,?,?,?,?,?,?)", (item_id, state, due, stab, diff, fc.to_json(), reps, lapses, first, last))
                     updated += 1
+                elif stuck:  # 对方撤销后这个词回到了没学过
+                    self.db.execute("DELETE FROM cards WHERE item_id=?", (item_id,))
+                    updated += 1
             else:
                 kept += 1
                 if note and not row["note"]:
                     self.db.execute("UPDATE items SET note=? WHERE id=?", (note, item_id))
-        # 复习记录取并集：同一个词、同一秒、同一评分算同一条，本机已有几条就少插几条
+        for iid in revert - set(ids):  # 对方撤销的是这个词的第一次复习，对方那边它已经回到没学过（进度里没有它）
+            self.db.execute("DELETE FROM cards WHERE item_id=?", (iid,))
+            updated += 1
+        # ---- 复习记录取并集：同一个词、同一秒、同一评分算同一条，本机已有几条就少插几条
         lg, t, logs_added = d["logs"], 0, 0
         have: dict[tuple, int] = {}
         for r in self.db.execute("SELECT item_id, ts, rating FROM logs"):
@@ -1054,7 +1180,13 @@ class Core:
             have[k] = have.get(k, 0) + 1
         for n in range(len(lg["i"])):
             t += lg["t"][n]
-            rec = (ids[lg["i"][n]], t, lg["r"][n])
+            iid = ids[lg["i"][n]]
+            if iid is None or t <= reset_ts:
+                continue
+            it = d["items"][lg["i"][n]]
+            if f"{it[0]}\t{it[1]}\t{t}" in undone:
+                continue
+            rec = (iid, t, lg["r"][n])
             if have.get(rec, 0) > 0:
                 have[rec] -= 1
                 continue
@@ -1062,10 +1194,10 @@ class Core:
                             (*rec, "spell" if lg["m"][n] else "recall", lg["e"][n] * 100, lg["s"][n], lg["n"][n]))
             logs_added += 1
         self.db.commit()
-        if p.get("settings", True):
-            self.api_settings_set({k: v for k, v in d.get("settings", {}).items() if k in STUDY_KEYS})
-        self._undo.clear()
-        return {"added": added, "updated": updated, "kept": kept, "logs_added": logs_added, "backup": backup}
+        return {"added": added, "updated": updated, "kept": kept, "logs_added": logs_added}
+
+    def api_sync_status(self, p: dict) -> dict:
+        return self.sync.status()
 
     def api_clipboard_copy(self, p: dict) -> dict:
         if self.clipboard and p.get("text"):
@@ -1080,6 +1212,7 @@ class Core:
         backup = self.api_backup({})
         self.db.execute("DELETE FROM cards")
         self.db.execute("DELETE FROM logs")
+        self._event("reset", "", 0)
         self.db.commit()
         self._undo.clear()
         return backup
@@ -1092,6 +1225,7 @@ class Core:
         return {"opened": False, "path": path}
 
     def close(self) -> None:
+        self.sync.stop()
         with self.lock:
             self.db.commit()
             self.db.close()

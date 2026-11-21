@@ -215,6 +215,24 @@ function confirmRender() {
   timer = setInterval(() => { left -= 1; count.textContent = String(left); if (left <= 0) revert(); }, 1000);
 }
 
+// 局域网同步：从别的设备合并进来新进度时，首页 / 统计页重新画一下，并轻轻提示一声
+let syncSeen = Math.floor(Date.now() / 1000) - 1;
+async function watchSync() {
+  if (app.settings.lan_sync && !document.hidden) {
+    try {
+      const s = await api("sync_status");
+      if (s.merged_at > syncSeen && s.merged_changes) {
+        const name = (location.hash.match(/^#\/(\w+)/) || [])[1] || "home";
+        if ((name === "home" || name === "stats") && !layerOpen()) route();
+        refreshNav();
+        if (name !== "review") toast(`已和「${s.merged_from}」同步了学习进度`);
+      }
+      syncSeen = Math.max(syncSeen, s.merged_at || 0);
+    } catch { /* 下次再看 */ }
+  }
+  setTimeout(watchSync, 4000);
+}
+
 async function boot() {
   const now = new Date();
   $("#navDate").textContent = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")} ${["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][now.getDay()]}`;
@@ -245,5 +263,6 @@ async function boot() {
   }, 1200);
   // 自动检查更新：启动几秒后在后台问一次，有新版本才提示
   if (app.settings?.update_check) setTimeout(() => import("./update.js").then((m) => m.checkUpdate(false)), 4000);
+  setTimeout(watchSync, 4000);
 }
 boot();

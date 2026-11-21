@@ -74,12 +74,14 @@ async function playClip(key, b64) {
   src.connect(gain).connect(voiceOut);
   src.start(t);
   const me = { src, gain };
-  src.onended = () => { if (playing === me) playing = null; };
   playing = me;
+  // 播完（或被下一段打断）才返回，方便接着读下一段（比如单词读完再读例句）
+  await new Promise((res) => { src.onended = () => { if (playing === me) playing = null; res(); }; });
 }
 
+// 返回 true 表示等到了播放结束；false 表示交给了系统朗读等，不知道什么时候读完
 export async function speak(text, lang = "en", kind = "word") {
-  if (!text) return;
+  if (!text) return false;
   try {
     const web = webAudioOk && !!(window.AudioContext || window.webkitAudioContext);
     const r = await api("speak", { text, lang, kind, web });
@@ -93,18 +95,24 @@ export async function speak(text, lang = "en", kind = "word") {
       warned[r.missing] = true;
       document.dispatchEvent(new CustomEvent("shici-toast", { detail: `「${text}」不在内置语音包里，联网也没取到发音，系统里又没有${name}语音，所以读不出来。联网后再试一次就会缓存下来。` }));
     }
-    if (r.handled) { if (r.source === "system") stopVoice(); return; }
+    if (r.handled) { if (r.source === "system") stopVoice(); return false; }
     if (r.audio) {
       if (web) {
-        try { await playClip(`${kind}|${lang}|${text}|${r.source}`, r.audio); return; } catch {
+        try { await playClip(`${kind}|${lang}|${text}|${r.source}`, r.audio); return true; } catch {
           // 解码不了（个别系统的内置浏览器不支持 MP3）：以后都交回桌面程序播放
           webAudioOk = false;
-          if (app_desktop()) { await api("speak", { text, lang, kind, web: false }); return; }
+          if (app_desktop()) { await api("speak", { text, lang, kind, web: false }); return false; }
         }
       }
       if (audio) audio.pause();
-      audio = new Audio("data:audio/mpeg;base64," + r.audio);
-      audio.play().catch(() => webSpeech(text, lang));
-    } else webSpeech(text, lang);
-  } catch { webSpeech(text, lang); }
+      const el = audio = new Audio("data:audio/mpeg;base64," + r.audio);
+      try {
+        await el.play();
+        await new Promise((res) => { el.onended = el.onpause = res; });
+        return true;
+      } catch { webSpeech(text, lang); return false; }
+    }
+    webSpeech(text, lang);
+    return false;
+  } catch { webSpeech(text, lang); return false; }
 }
