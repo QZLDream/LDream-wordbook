@@ -172,6 +172,18 @@ class Dictionary:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def revision(self) -> str:
+        """词典数据的版本：修正过词书归属（比如 1.1.2 修正日语读音）时会变，程序据此给已加入的词书补上新词。"""
+        out = []
+        with self._lock:
+            for lang, con in sorted(self._db.items()):
+                try:
+                    r = con.execute("SELECT v FROM meta WHERE k='rev'").fetchone()
+                except sqlite3.Error:
+                    r = None
+                out.append(f"{lang}:{r[0] if r else ''}")
+        return ",".join(out)
+
     # ---- 词书 ----
     def books(self) -> list[dict]:
         out = []

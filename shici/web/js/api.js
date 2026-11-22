@@ -20,6 +20,12 @@ export async function api(name, params) {
 
 let audio = null;
 const warned = {};
+// 语速（设置里的「语速」）：1 = 原速。不是 1 时用 <audio> 播放，浏览器会保持音调不变地加快 / 放慢
+let rate = 1;
+export function setVoiceRate(r) {
+  rate = Number(r) || 1;
+  try { window.ShiciAndroid?.setSpeechRate?.(rate); } catch { /* 旧版安卓外壳没有这个接口 */ }
+}
 // 是不是桌面版（启动时 app.js 会设置）；不直接引用 app.js，避免循环依赖
 const app_desktop = () => !!window.__shiciDesktop;
 function webSpeech(text, lang) {
@@ -27,7 +33,7 @@ function webSpeech(text, lang) {
   if (!("speechSynthesis" in window)) return;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = lang === "ja" ? "ja-JP" : "en-US";
-  u.rate = 0.92;
+  u.rate = 0.92 * rate;
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
@@ -47,7 +53,9 @@ function audioCtx() {
   if (actx.state === "suspended") actx.resume().catch(() => {});
   return actx;
 }
+let playingEl = null;
 function stopVoice() {
+  if (playingEl) { playingEl.pause(); playingEl = null; }
   if (!playing) return;
   const { src, gain } = playing, t = actx.currentTime;
   gain.gain.cancelScheduledValues(t);
@@ -56,7 +64,19 @@ function stopVoice() {
   try { src.stop(t + 0.02); } catch { /* 已经停了 */ }
   playing = null;
 }
+// 变速播放：Web Audio 一变速就变调（声音发尖 / 发闷），<audio> 的 playbackRate 默认保持音调
+async function playStretched(b64) {
+  stopVoice();
+  const el = new Audio("data:audio/mpeg;base64," + b64);
+  el.preservesPitch = true;
+  el.playbackRate = rate;
+  playingEl = el;
+  await el.play();
+  await new Promise((res) => { el.onended = el.onpause = el.onerror = res; });
+  if (playingEl === el) playingEl = null;
+}
 async function playClip(key, b64) {
+  if (Math.abs(rate - 1) > 0.01) return playStretched(b64);
   const c = audioCtx();
   if (!c) throw new Error("no web audio");
   let buf = decoded.get(key);
@@ -106,6 +126,7 @@ export async function speak(text, lang = "en", kind = "word") {
       }
       if (audio) audio.pause();
       const el = audio = new Audio("data:audio/mpeg;base64," + r.audio);
+      el.playbackRate = rate;
       try {
         await el.play();
         await new Promise((res) => { el.onended = el.onpause = res; });

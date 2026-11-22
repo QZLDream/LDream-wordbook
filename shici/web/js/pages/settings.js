@@ -132,8 +132,9 @@ export async function mount(root) {
     } else fill(peersEl);
     list.forEach((p) => peersEl.append(h("div", { class: "peer" + (p.online ? "" : " away") },
       h("span", { class: "dot" + (p.error ? " bad" : p.online ? " on" : "") }),
-      h("b", { text: p.name }),
-      h("span", { text: p.syncing ? "正在同步…" : p.error ? p.error : p.last_ok ? `${ago(p.last_ok, st.now)}同步过${p.online ? "" : " · 现在不在线"}` : p.pending ? "找到了，马上同步" : "已连上" }))));
+      h("b", { text: p.name }), p.ip ? h("span", { class: "ip", text: p.ip }) : null,
+      h("span", { class: p.error && !p.syncing ? "err" : null, text: p.syncing ? "正在同步…" : p.error ? p.error : p.last_ok ? `${ago(p.last_ok, st.now)}同步过${p.online ? "" : " · 现在不在线"}` : p.pending ? "找到了，马上同步" : "已连上" }))));
+    if (st?.ips?.length) peersEl.append(h("div", { class: "me" }, h("span", { text: `本机：${st.name} · ${st.ips.join(" / ")}` })));
   };
   const paintSync = () => {
     codeEl.textContent = s.sync_code ? s.sync_code.match(/.{1,4}/g).join(" - ") : "打开后自动生成";
@@ -163,8 +164,12 @@ export async function mount(root) {
   };
   const syncRows = [
     row("同步码", "在一台设备上打开局域网同步会自动生成一个同步码；另一台设备点「填同步码」，填一样的就行。同步码不一样的设备互相看不到。", [codeEl, act("填同步码…", editCode)], "sub"),
+    win ? row("Windows 防火墙", "手机上显示连不上这台电脑时点这里：允许小梦的词书接收同一个局域网里的连接（只限局域网，外网连不进来）。Windows 会弹出管理员确认，点「是」。",
+      act("允许通过防火墙", async () => {
+        try { toast((await api("sync_firewall")).started ? "已设置。手机上过几秒会自动重试同步" : "没能打开管理员确认窗口", 6000); } catch (e) { fail(e); }
+      }), "sub") : null,
     row("附近的设备", peersEl, null, "sub"),
-  ];
+  ].filter(Boolean);
   syncs.push(paintSync);
   let syncTimer = 0, alive = true;
   const pollSync = async () => {
@@ -183,7 +188,9 @@ export async function mount(root) {
       row("一天从几点开始", "熬夜到凌晨时，这个时间之前都算作前一天。", slider("day_start", 0, 8, 1, (v) => `${Math.round(v)}:00`)),
       row("新词顺序", "自己添加和导入的词总是排在词书前面。", seg("order", [["freq", "常用词优先"], ["random", "随机"], ["alpha", "字母顺序"]]))),
     group(2, "VOICE · 发音",
-      row("发音来源", "内置语音：程序自带的合成语音，词书里的英语和日语单词都有，不用联网，也不用给系统装语音包。在线真人：有道词典的发音，听过一次就存在本机。" + (android ? "系统语音：手机自带的文字转语音（TTS）。" : "系统语音：Windows 自带的朗读，需要装了对应语言的语音。") + "选中的来源没有某个词时，会自动换下一种。",
+      row("语速", "觉得读得太快或太慢可以调，单词、例句和系统语音都按这个速度读，音调不变。拖完会读一遍示例。",
+        slider("voice_rate", 60, 130, 5, (v) => `${Number(v).toFixed(2).replace(/0$/, "")}×`, 100, () => speak("vocabulary", "en"))),
+      row("发音来源", "内置语音：程序自带的合成语音，词书里的英语和日语单词都有，不用联网，也不用给系统装语音包。在线真人：有道词典的发音（日语按词书上的读音去取），听过一次就存在本机。" + (android ? "系统语音：手机自带的文字转语音（TTS）。" : "系统语音：Windows 自带的朗读，需要装了对应语言的语音。") + "选中的来源没有某个词时，会自动换下一种。",
         seg("voice", [["builtin", "内置语音"], ["online", "在线真人"], ["system", "系统语音"]])),
       row("在线发音口音", null, seg("accent", [["us", "美音"], ["uk", "英音"]])),
       row("自动朗读单词", "单词出现时自动读一遍。关掉后，显示答案时才读。", flag("autoplay", "自动朗读单词")),

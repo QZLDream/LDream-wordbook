@@ -175,7 +175,7 @@ def build_en_sentences(src: Path, db: sqlite3.Connection) -> None:
 
 
 # ---------------------------------------------------------------- 日语：中文释义
-def build_ja_zh(src: Path, db: sqlite3.Connection, ecdict_db: sqlite3.Connection, t2s) -> None:
+def build_ja_zh(src: Path, db: sqlite3.Connection, ecdict_db: sqlite3.Connection, t2s, only: set | None = None) -> None:
     cache = src / "wikt" / "parsed.pkl"
     if cache.exists():
         by_word, alias = pickle.load(open(cache, "rb"))
@@ -215,7 +215,9 @@ def build_ja_zh(src: Path, db: sqlite3.Connection, ecdict_db: sqlite3.Connection
     add_col(db, "entries", "zh_src", "TEXT")
     stat = Counter()
     for word, reading, en in db.execute("SELECT word, phonetic, translation FROM entries").fetchall():
-        zh, srcname = wikt_ja_zh.definition(word, reading, by_word, alias), "wikt"
+        if only is not None and word not in only:
+            continue
+        zh, srcname = wikt_ja_zh.definition(word, reading, by_word, alias, strict=only is not None), "wikt"
         if not zh:
             top = [w for w, n in pivot.get(word, Counter()).most_common(4)]
             if top:

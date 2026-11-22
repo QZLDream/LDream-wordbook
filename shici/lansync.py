@@ -20,9 +20,11 @@ import json
 import lzma
 import secrets
 import socket
+import sys
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import quote, unquote
 
@@ -33,6 +35,29 @@ BEACON_EVERY = 2.0
 ONLINE_FOR = 12.0       # 多久没收到广播就算对方已经离开
 SETTLE = 3.0            # 进度刚变（正在背）时等这么久再同步，攒一批
 MAX_BODY = 64 * 1024 * 1024
+
+
+class SyncError(Exception):
+    """同步失败，带一个原因：connect 连不上 / refused 被拒绝 / slow 对方没回应 / code 同步码对不上 / other"""
+
+    def __init__(self, why: str, detail: str = ""):
+        super().__init__(why)
+        self.why, self.detail = why, detail
+
+
+def explain(e: SyncError, kind: str, ip: str) -> str:
+    who = "这台电脑" if kind == "pc" else "这台手机"
+    if e.why == "connect":
+        if kind == "pc":
+            return f"连不上{who}（超时）：多半是电脑的防火墙挡住了，在电脑上的「设置 → 同步」里点「允许通过防火墙」"
+        return f"连不上{who}（超时）：确认手机上小梦的词书开着、屏幕亮着；电脑开着 VPN 或加速器的话先关掉试试"
+    if e.why == "refused":
+        return f"{who}拒绝了连接：对方可能刚关掉同步，等几秒会自动重试"
+    if e.why == "slow":
+        return f"{who}半天没回应：对方可能切到后台了，等一下会自动重试"
+    if e.why == "code":
+        return "对方的同步码和这里不一样"
+    return f"连不上{who}：{e.detail}"
 
 
 class LanSync:
@@ -296,16 +321,32 @@ class LanSync:
 
     def _post(self, p: dict, path: str, body: bytes, timeout: float) -> tuple[bytes, dict]:
         nonce = secrets.token_hex(12)
-        conn = http.client.HTTPConnection(p["ip"], p["port"], timeout=timeout)  # 直连，不走系统代理
+        conn = http.client.HTTPConnection(p["ip"], p["port"], timeout=6)  # 直连，不走系统代理；连接最多等 6 秒
         try:
-            conn.request("POST", path, body, self._headers(body, nonce))
-            r = conn.getresponse()
-            data = r.read(MAX_BODY + 1)
+            try:
+                conn.connect()
+            except socket.timeout:
+                raise SyncError("connect") from None
+            except ConnectionRefusedError:
+                raise SyncError("refused") from None
+            except OSError as e:
+                raise SyncError("other", e.strerror or str(e)) from None
+            conn.sock.settimeout(timeout)  # 连上以后给对方足够的时间合并（手机上第一次同步可能要几秒到十几秒）
+            try:
+                conn.request("POST", path, body, self._headers(body, nonce))
+                r = conn.getresponse()
+                data = r.read(MAX_BODY + 1)
+            except socket.timeout:
+                raise SyncError("slow") from None
+            except (OSError, http.client.HTTPException) as e:
+                raise SyncError("other", f"传到一半断开了（{type(e).__name__}）") from None
+            if r.status == 403:
+                raise SyncError("code")
             if r.status != 200:
-                raise ConnectionError(f"对方拒绝了（{r.status}），两边的同步码可能不一样")
+                raise SyncError("other", f"对方合并进度时出错（{r.status}）")
             fp = r.getheader("X-Xm-Fp") or ""
             if not hmac.compare_digest(r.getheader("X-Xm-Sig") or "", self._sig("resp", nonce, fp, hashlib.sha256(data).hexdigest())):
-                raise ConnectionError("对方的回复对不上同步码")
+                raise SyncError("code")
             return data, {"fp": fp}
         finally:
             conn.close()
@@ -316,7 +357,7 @@ class LanSync:
             if not p:
                 return
             body, _ = self._pack()
-            data, info = self._post(p, "/xmcs-sync", body, timeout=max(8.0, len(body) / 200_000))
+            data, info = self._post(p, "/xmcs-sync", body, timeout=180)
             self._merge(data, p.get("name", ""))
             mine = self.fingerprint()
             p.update(rec=(mine, info["fp"]), last_ok=time.time(), error="", need_since=0.0)
@@ -324,9 +365,9 @@ class LanSync:
                 self._post(p, "/xmcs-ack", json.dumps({"fp": mine}).encode(), timeout=4)
             except Exception:
                 pass
-        except (OSError, ConnectionError, http.client.HTTPException) as e:
+        except SyncError as e:
             if p is not None:
-                p["error"] = str(e) if isinstance(e, ConnectionError) else "连不上（可能被防火墙挡住了）"
+                p["error"] = explain(e, p.get("kind", "pc"), p.get("ip", ""))
         except Exception as e:
             if p is not None:
                 p["error"] = f"同步出错：{e}"
@@ -396,10 +437,37 @@ class LanSync:
             if not online and not p.get("last_ok"):
                 continue
             peers.append({"name": p.get("name", "设备"), "kind": p.get("kind", "pc"), "online": online,
-                          "last_ok": int(p.get("last_ok") or 0), "syncing": self.syncing == p["id"],
+                          "last_ok": int(p.get("last_ok") or 0), "syncing": self.syncing == p["id"], "ip": p.get("ip", ""),
                           "error": p.get("error", "") if online else "",
                           "pending": online and bool(p.get("need_since"))})
         peers.sort(key=lambda x: (not x["online"], -x["last_ok"]))
-        return {"running": self.running, "name": self.name, "error": self.error, "peers": peers,
+        return {"running": self.running, "name": self.name, "ips": self._local_ips() if self.running else [],
+                "error": self.error, "peers": peers, "firewall": sys.platform == "win32",
                 "merged_at": int(self.merged["at"]), "merged_from": self.merged["from"], "merged_changes": self.merged["changes"],
                 "now": int(now)}
+
+    # ------------------------------------------------------------ Windows 防火墙
+    def open_firewall(self) -> bool:
+        """Windows：给运行本程序的 Python 加一条“允许局域网连进来”的入站规则（只限本地子网），
+        并删掉 Windows 之前因为没点「允许」而自动加的阻止规则。要管理员权限，会弹出 UAC 确认。"""
+        if sys.platform != "win32":
+            return False
+        import ctypes
+        exe = Path(sys.executable)
+        progs = [str(exe)] + [str(exe.with_name(n)) for n in ("python.exe", "pythonw.exe") if exe.with_name(n) != exe and exe.with_name(n).exists()]
+        ps = []
+        for prog in progs:
+            q = prog.replace("'", "''")
+            ps.append(f"Get-NetFirewallApplicationFilter -Program '{q}' -ErrorAction SilentlyContinue | Get-NetFirewallRule | "
+                      "Where-Object { $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block' } | Remove-NetFirewallRule")
+            ps.append(f"Remove-NetFirewallRule -DisplayName '小梦的词书 局域网同步' -ErrorAction SilentlyContinue")
+        for prog in progs:
+            q = prog.replace("'", "''")
+            ps.append(f"New-NetFirewallRule -DisplayName '小梦的词书 局域网同步' -Direction Inbound -Action Allow -Program '{q}' "
+                      "-RemoteAddress LocalSubnet -Profile Any | Out-Null")
+        script = "; ".join(dict.fromkeys(ps))
+        import base64 as b64
+        enc = b64.b64encode(script.encode("utf-16-le")).decode("ascii")
+        r = ctypes.windll.shell32.ShellExecuteW(None, "runas", "powershell.exe",
+                                                f"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand {enc}", None, 0)
+        return int(r) > 32

@@ -1,5 +1,5 @@
 // 启动、路由、顶部导航。
-import { api } from "./api.js";
+import { api, setVoiceRate } from "./api.js";
 import { applyFonts } from "./fonts.js";
 import { $, $$, h, fail, ms, layerOpen, toast, icons, openLayer, gpuRenderer, closeTopLayer, fitTerms } from "./ui.js";
 import * as sfx from "./sfx.js";
@@ -19,6 +19,7 @@ export const isDarkMode = (s = app.settings) => s.theme === "dark" || (s.theme =
 
 export function applySettings(s) {
   app.settings = s;
+  setVoiceRate(s.voice_rate);
   const dark = isDarkMode(s);
   const root = document.documentElement;
   const theme = dark ? "dark" : "light", palette = s.palette === "silver" ? "silver" : "vermilion";

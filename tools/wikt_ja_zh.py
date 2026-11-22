@@ -99,7 +99,8 @@ def reading_ok(word: str, reading: str, rset: set) -> bool:
     return False
 
 
-def definition(word: str, reading: str, by_word: dict, alias: dict) -> str:
+def definition(word: str, reading: str, by_word: dict, alias: dict, strict: bool = False) -> str:
+    """strict：没标读音的词条也不用（同形异音词修正读音时用，免得拿到另一个读音的释义）。"""
     cands = by_word.get(word) or by_word.get(alias.get(word, ""), [])
     if not cands and reading:
         cands = by_word.get(reading) or by_word.get(alias.get(reading, ""), [])
@@ -108,7 +109,7 @@ def definition(word: str, reading: str, by_word: dict, alias: dict) -> str:
     # 只用读音对得上的词条（同形异音词很多，对不上宁可不用，改用机翻 JMdict）；
     # 假名词（本身就是读音）直接用；专有名词（人名地名）不用
     kana_word = bool(re.fullmatch(r"[\u3040-\u30ffー]+", word))
-    use = [c for c in cands if not c[2] and (kana_word or not c[0] or reading_ok(word, reading, c[0]))]
+    use = [c for c in cands if not c[2] and (kana_word or (not c[0] and not strict) or reading_ok(word, reading, c[0]))]
     if not use:
         return ""
     # 「××的截断形式」「××的异体写法」这类说明性义项：有别的释义时就不要

@@ -318,9 +318,8 @@ def short_pos(pos_list: list[str]) -> str:
     return "/".join(out[:2])
 
 
-def build_ja(src: Path) -> None:
-    out = OUT / "dict_ja.db"
-    out.unlink(missing_ok=True)
+def load_jmdict(src: Path):
+    """读 JMdict，返回 find(term, reading) -> 最合适的词条（含英文释义 meaning、常用度 nf）。"""
     by_keb: dict[str, list] = defaultdict(list)
     by_reb: dict[str, list] = defaultdict(list)
     with gzip.open(src / "JMdict_e.gz", "rb") as f:
@@ -366,6 +365,50 @@ def build_ja(src: Path) -> None:
                 return sorted(pool, key=lambda e: (not e["common"], e["nf"]))[0]
         return None
 
+    return find
+
+
+def jlpt_levels(src: Path, find) -> dict[str, list]:
+    """JLPT 词表 → {级别: [(词, 读音, 英文释义, 标签, 常用度), …]}。
+
+    同一个写法在词表里可能出现好几次（今日：N5 きょう、N3 こんにち；上手：N5 じょうず、N1 うわて），
+    取最简单的级别那一条：学 N5 的人看到的「今日」应该读 きょう。
+    以前取的是词表里先出现的那条（N1 排在最前面），结果 300 多个常用词显示成了生僻读音、还被放进了 N1。
+    """
+    cands: dict[str, list] = defaultdict(list)
+    with open(src / "JLPT_vocab_ALL.csv", encoding="utf-8", newline="") as f:
+        for n, r in enumerate(csv.DictReader(f)):
+            term, reading, lv = r["Kanji"].strip(), r["Reading"].strip(), r["Level"].strip()
+            term = re.sub(r"\s*[(（]=.*?[)）]", "", term).strip()
+            reading = re.sub(r"\s*[(（]=.*?[)）]", "", reading).strip()
+            reading = re.sub(r"[(（].*$", "", reading).strip()
+            if term:
+                cands[term].append((int(lv), n, reading))
+
+    def rank(term: str, c) -> tuple:
+        lv, n, reading = c
+        e = find(term, reading or term)
+        exact = bool(e) and (reading or term) in e["rebs"]
+        pos = e["rebs"].index(reading or term) if exact else 99
+        # 纯假名词的读音就该是它自己（词表里有几行把「アイ」「アイデア」的读音写串了）
+        wrong = bool(reading) and reading != term and bool(re.fullmatch(r"[\u3040-\u30ffー・]+", term))
+        return (wrong, -lv, not exact, not e or not e["common"], e["nf"] if e else 99, pos, n)
+
+    levels: dict[str, list] = defaultdict(list)
+    for term, cs in sorted(cands.items(), key=lambda kv: min(c[1] for c in kv[1])):
+        lv, n, reading = min(cs, key=lambda c: rank(term, c))
+        e = find(term, reading or term)
+        if not e or not e["meaning"]:  # 原始词表里有少量残缺条目，查不到释义的直接丢弃
+            continue
+        levels[str(lv)].append((n, (term, "" if reading == term else reading, e["meaning"], f"n{lv}", e["nf"])))
+    return {lv: [x for _, x in sorted(rows)] for lv, rows in levels.items()}
+
+
+def build_ja(src: Path) -> None:
+    out = OUT / "dict_ja.db"
+    out.unlink(missing_ok=True)
+    find = load_jmdict(src)
+
     db = sqlite3.connect(out)
     db.executescript(
         """
@@ -376,23 +419,7 @@ def build_ja(src: Path) -> None:
         CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT);
         """
     )
-    levels: dict[str, list] = defaultdict(list)
-    seen, miss, total = set(), 0, 0
-    with open(src / "JLPT_vocab_ALL.csv", encoding="utf-8", newline="") as f:
-        for r in csv.DictReader(f):
-            term, reading, lv = r["Kanji"].strip(), r["Reading"].strip(), r["Level"].strip()
-            term = re.sub(r"\s*[(（]=.*?[)）]", "", term).strip()
-            reading = re.sub(r"\s*[(（]=.*?[)）]", "", reading).strip()
-            if not term or term in seen:
-                continue
-            seen.add(term)
-            total += 1
-            reading = re.sub(r"[(（].*$", "", reading).strip()
-            e = find(term, reading or term)
-            if not e or not e["meaning"]:  # 原始词表里有少量残缺条目，查不到释义的直接丢弃
-                miss += 1
-                continue
-            levels[lv].append((term, "" if reading == term else reading, e["meaning"], f"n{lv}", e["nf"]))
+    levels = jlpt_levels(src, find)
     for lv in sorted(levels, reverse=True):  # N5 → N1
         rows = sorted(levels[lv], key=lambda x: x[4])
         db.executemany("INSERT OR IGNORE INTO entries VALUES(?,?,?,?,?)", rows)

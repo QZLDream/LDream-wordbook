@@ -94,7 +94,8 @@ svg { display: block; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes draw-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes letter { from { transform: translate3d(0, 135%, 0); } to { transform: none; } }
-@keyframes breathe { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+/* 呼吸：改变文字颜色而不是透明度。透明度动画会让文字单独成一层交给显卡合成，部分安卓手机上会一闪一闪地跳亮度 */
+@keyframes breathe { 0%, 100% { color: color-mix(in srgb, var(--mute) 35%, transparent); } 50% { color: var(--mute); } }
 @keyframes shake { 10%, 90% { transform: translateX(-2px); } 20%, 80% { transform: translateX(4px); } 30%, 50%, 70% { transform: translateX(-7px); } 40%, 60% { transform: translateX(7px); } }
 .rise { animation: rise .8s var(--ease) both; animation-delay: calc(var(--i, 0) * 80ms + var(--d, 0ms)); }
 .rule { height: 1px; background: var(--line-2); transform-origin: left; animation: draw-x 1s var(--ease-io) both; animation-delay: calc(var(--i, 0) * 80ms + var(--d, 0ms)); }
@@ -510,10 +511,14 @@ textarea.field { resize: vertical; min-height: 76px; line-height: 1.6; }
 .sync-peers .peer { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--mute); }
 .set-row .txt .peer b { display: inline; font-size: 14px; color: var(--ink); }
 .sync-peers .peer.away { opacity: .6; }
+.sync-peers .peer { flex-wrap: wrap; row-gap: 2px; }
+.sync-peers .ip { font: 400 12px var(--mono); color: var(--faint); }
+.set-row .txt .sync-peers .err { display: block; flex-basis: 100%; padding-left: 18px; color: var(--bad); line-height: 1.6; }
+.set-row .txt .sync-peers .me span { font: 400 12px var(--mono); color: var(--faint); }
 .sync-peers .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); flex: none; }
 .sync-peers .dot.on { background: #3aa76d; }
-.sync-peers .dot.bad { background: var(--accent); }
-.set-row .txt .sync-peers > .bad { color: var(--accent); }
+.sync-peers .dot.bad { background: var(--bad); }
+.set-row .txt .sync-peers > .bad { color: var(--bad); }
 .sync-input { text-align: center; font-family: var(--mono); letter-spacing: .14em; text-transform: uppercase; }
 #themeBtn svg { transition: transform .7s var(--ease); }
 #themeBtn:hover svg { transform: rotate(40deg); }

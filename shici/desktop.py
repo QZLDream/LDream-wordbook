@@ -71,6 +71,9 @@ class Voice(QObject):
             best = next((loc for loc in locales if loc.territory() == territory), locales[0])
             if tts.locale() != best:
                 tts.setLocale(best)
+            # 语速：Qt 的 rate 是 -1（最慢）~ 1（最快），0 是正常；默认稍慢一点（-0.15）
+            r = float(self.core.settings.get("voice_rate", 1.0))
+            tts.setRate(max(-1.0, min(1.0, -0.15 + (r - 1) * 1.6)))
             tts.stop()
             tts.say(text)
         except Exception as e:
@@ -92,6 +95,7 @@ class Voice(QObject):
             self._pending = (text, lang)
             self.player.stop()
             self.player.setSource(QUrl.fromLocalFile(path))
+            self.player.setPlaybackRate(float(self.core.settings.get("voice_rate", 1.0)))
             self.player.play()
         except Exception:
             self._say(text, lang)

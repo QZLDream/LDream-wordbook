@@ -3,6 +3,7 @@
 由 MainActivity 在后台线程里调用 start()；bridge 是 Java 那边的 PyBridge 对象，
 用来做 Python 自己做不了的事：系统朗读、复制、打开网页、把文件存到“下载”文件夹。
 """
+import threading
 import os
 
 _server = None
@@ -18,7 +19,21 @@ def start(files_dir, bridge):
 
     core = Core()
     core.android = True
-    core.voice_langs = None  # 安卓系统朗读（TextToSpeech）一般都带英语和日语
+    core.voice_langs = None  # 先当作都能读；系统 TTS 初始化完后换成实际装了的语言（很多手机没有日语语音）
+
+    def probe_tts():
+        import time
+        for _ in range(60):
+            try:
+                langs = bridge.ttsLangs()
+            except Exception:
+                return
+            if langs is not None:
+                core.voice_langs = {x for x in str(langs).split(",") if x}
+                return
+            time.sleep(0.5)
+
+    threading.Thread(target=probe_tts, name="shici-tts-probe", daemon=True).start()
     core.speaker = lambda text, lang, path: bridge.speak(text, lang, path or "")
     core.url_opener = lambda url: bridge.openUrl(url)
     core.clipboard = lambda text: bridge.copy(text)

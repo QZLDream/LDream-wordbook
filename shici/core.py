@@ -87,6 +87,7 @@ DEFAULTS = {
     "order": "freq",        # 新词顺序：freq 常用优先 / random 随机 / alpha 字母序
     "autoplay": True,       # 出现单词时自动朗读
     "autoplay_example": False,  # 显示答案时自动朗读第一条例句（单词读完之后）
+    "voice_rate": 1.0,      # 语速：0.6~1.3 倍，内置 / 在线 / 例句 / 系统语音都按这个速度读（不变调）
     "voice": "builtin",     # builtin 内置语音包（离线）/ online 在线真人发音 / system 系统语音
     "online_fallback": True,  # 内置语音包里没有的词（自己加的生词）联网取发音并缓存
     "accent": "us",         # 在线发音口音 us / uk
@@ -148,6 +149,7 @@ class Core:
             self.settings["render"] = "auto"
         self.srs = Srs(self.settings["retention"])
         self._apply_gloss()
+        self._refresh_books()
         self._undo: list[int] = []
         self.voice = VoiceBank(self.dir / "audio-cache")
         self.fonts = FontStore(self.dir)
@@ -182,6 +184,19 @@ class Core:
             except Exception:
                 self.db.rollback()
                 raise
+
+    def _refresh_books(self) -> None:
+        """词典更新后（词书里加了词、词换了词书），把已加入计划的词书补齐。只在词典版本变了时做一次。"""
+        rev = self.dict.revision()
+        row = self.db.execute("SELECT v FROM settings WHERE k='_dict_rev'").fetchone()
+        if row and json.loads(row["v"]) == rev:
+            return
+        for (src,) in self.db.execute("SELECT DISTINCT source FROM item_sources WHERE source LIKE 'book:%'").fetchall():
+            if self.dict.book(src[5:]):
+                lang, words = self.dict.book_words(src[5:])
+                self._insert_items(lang, [{"term": w, "rank": r} for w, r in words], src, prio=1)
+        self.db.execute("REPLACE INTO settings(k, v) VALUES('_dict_rev', ?)", (json.dumps(rev),))
+        self.db.commit()
 
     # ------------------------------------------------------------ 同步事件
     def _event(self, kind: str, key: str, val: int = 0, ts: int | None = None) -> None:
@@ -791,6 +806,8 @@ class Core:
                 v = max(ranges[k][0], min(ranges[k][1], int(v)))
             elif k == "retention":
                 v = max(0.70, min(0.97, round(float(v), 2)))
+            elif k == "voice_rate":
+                v = max(0.6, min(1.3, round(float(v), 2)))
             elif k in choices:
                 if v not in choices[k]:
                     raise ApiError(f"{k} 的取值不对")
@@ -877,7 +894,7 @@ class Core:
             if src == "builtin":
                 data = self.voice.pack(lang, text)
             elif src == "online" and (s["voice"] == "online" or s["online_fallback"]):
-                data = self.voice.online(lang, text, s["accent"])
+                data = self.voice.online(lang, self._say_as(lang, text), s["accent"])
             elif src == "system":
                 if self.speaker is None:
                     return {"handled": False, "source": "browser"}
@@ -890,6 +907,16 @@ class Core:
                     return {"handled": True, "source": src}
                 return {"handled": False, "source": src, "audio": base64.b64encode(data).decode("ascii")}
         return {"handled": True, "missing": lang}
+
+    def _say_as(self, lang: str, text: str) -> str:
+        """在线发音要发给网站的文字。日语用读音（假名）：网站拿到单个汉字时常常读错（比如「木」读成「もく」甚至读不出来），
+        词书里的读音才是这个词该有的读法。"""
+        if lang != "ja":
+            return text
+        row = self.db.execute("SELECT reading FROM items WHERE lang='ja' AND term=?", (text,)).fetchone()
+        reading = row["reading"] if row and row["reading"] else (self.dict.lookup("ja", text) or {}).get("phonetic") or ""
+        reading = re.split(r"[;；,，、/／]", reading)[0].strip()
+        return reading if reading and re.fullmatch(r"[\u3040-\u30ffー・ ]+", reading) else text
 
     def _online_ok(self) -> bool:
         return self.settings["voice"] == "online" or bool(self.settings["online_fallback"])
@@ -1198,6 +1225,9 @@ class Core:
 
     def api_sync_status(self, p: dict) -> dict:
         return self.sync.status()
+
+    def api_sync_firewall(self, p: dict) -> dict:
+        return {"started": self.sync.open_firewall()}
 
     def api_clipboard_copy(self, p: dict) -> dict:
         if self.clipboard and p.get("text"):

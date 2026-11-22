@@ -86,19 +86,53 @@ class VoiceBank:
         path = self._sentence_path(lang, text, accent)
         return path.read_bytes() if path.exists() else None
 
+    def _sentence_urls(self, lang: str, text: str, accent: str) -> dict[str, str]:
+        gl = "ja" if lang == "ja" else ("en-GB" if accent == "uk" else "en-US")
+        bd = "jp" if lang == "ja" else ("uk" if accent == "uk" else "en")
+        return {
+            # 有道：真人 / 高质量合成，但现在只肯读单词和短语，整句会返回错误
+            "youdao": self.online_url(lang, text, accent),
+            # 百度翻译的朗读：国内能用，整句没问题
+            "baidu": f"https://fanyi.baidu.com/gettts?lan={bd}&text={quote(text[:300])}&spd=4&source=web",
+            # 谷歌翻译的朗读：国外快；国内连不上
+            "google": "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" + gl + "&q=" + quote(text[:200]),
+        }
+
+    def _order(self) -> list[str]:
+        """哪个来源上次取到了就先试哪个（存在缓存目录里），在国内国外都不用每次先等一个连不上的。"""
+        if not hasattr(self, "_pref"):
+            try:
+                saved = (self.cache / "sentence-source.txt").read_text().split()
+            except OSError:
+                saved = []
+            self._pref = [x for x in saved if x in ("youdao", "baidu", "google")]
+            self._pref += [x for x in ("youdao", "google", "baidu") if x not in self._pref]
+        return list(self._pref)
+
+    def _prefer(self, name: str) -> None:
+        if self._order()[0] == name:
+            return
+        self._pref = [name] + [x for x in self._pref if x != name]
+        try:
+            self.cache.mkdir(parents=True, exist_ok=True)
+            (self.cache / "sentence-source.txt").write_text(" ".join(self._pref))
+        except OSError:
+            pass
+
     def sentence(self, lang: str, text: str, accent: str) -> bytes | None:
-        """例句发音：本地缓存 → 有道词典的整句朗读 → 谷歌翻译的朗读。都取不到返回 None。"""
+        """例句发音：本地缓存 → 有道 / 百度翻译 / 谷歌翻译的朗读（上次成功的先试）。都取不到返回 None。"""
         data = self.sentence_cached(lang, text, accent)
         if data:
             return data
-        gl = "ja" if lang == "ja" else ("en-GB" if accent == "uk" else "en-US")
-        for url in (self.online_url(lang, text, accent),
-                    "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" + gl + "&q=" + quote(text[:200])):
+        urls = self._sentence_urls(lang, text, accent)
+        for name in self._order():
             try:
-                data = self._fetch(url)
+                data = self._fetch(urls[name])
             except Exception:
                 data = None
             if data:
+                if name != "youdao":  # 有道只是偶尔能读（短句）：不把它记成首选，免得每句都先白试一次
+                    self._prefer(name)
                 path = self._sentence_path(lang, text, accent)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(data)

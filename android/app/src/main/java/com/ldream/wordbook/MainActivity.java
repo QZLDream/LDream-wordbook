@@ -63,7 +63,9 @@ public class MainActivity extends AppCompatActivity {
     private FrameLayout root;
     private WebView web;
     private TextToSpeech tts;
-    private boolean ttsReady;
+    private volatile boolean ttsReady;
+    private volatile float speechRate = 1f;   // 设置里的「语速」
+    private volatile String ttsLangs = null;  // 系统 TTS 能读的语言（"en,ja"），还没初始化完是 null
     private MediaPlayer player;
     private ValueCallback<Uri[]> fileCallback;
     private ActivityResultLauncher<Intent> filePicker;
@@ -157,7 +159,18 @@ public class MainActivity extends AppCompatActivity {
             vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         }
 
-        tts = new TextToSpeech(this, status -> ttsReady = status == TextToSpeech.SUCCESS);
+        tts = new TextToSpeech(this, status -> {
+            ttsReady = status == TextToSpeech.SUCCESS;
+            // 看看系统 TTS 装没装英语 / 日语：没装日语时，它会拿中文的声音去读汉字（只念出中文），不如不读
+            StringBuilder sb = new StringBuilder();
+            if (ttsReady) {
+                try {
+                    if (tts.isLanguageAvailable(Locale.US) >= TextToSpeech.LANG_AVAILABLE) sb.append("en");
+                    if (tts.isLanguageAvailable(Locale.JAPAN) >= TextToSpeech.LANG_AVAILABLE) sb.append(sb.length() > 0 ? ",ja" : "ja");
+                } catch (Exception ignored) { }
+            }
+            ttsLangs = sb.toString();
+        });
 
         showSplash(bg, dark);
         new Thread(() -> {
@@ -256,15 +269,21 @@ public class MainActivity extends AppCompatActivity {
                     player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
                     player.setDataSource(path);
-                    player.setOnPreparedListener(MediaPlayer::start);
+                    player.setOnPreparedListener(mp -> {
+                        try { if (Math.abs(speechRate - 1f) > 0.01f) mp.setPlaybackParams(mp.getPlaybackParams().setSpeed(speechRate)); }
+                        catch (Exception ignored) { }
+                        mp.start();
+                    });
                     player.prepareAsync();
                     return;
                 } catch (Exception ignored) {
                 }
             }
             if (!ttsReady) return;
-            tts.setLanguage("ja".equals(lang) ? Locale.JAPAN : Locale.US);
-            tts.setSpeechRate("ja".equals(lang) ? 0.95f : 0.9f);
+            Locale loc = "ja".equals(lang) ? Locale.JAPAN : Locale.US;
+            if (tts.isLanguageAvailable(loc) < TextToSpeech.LANG_AVAILABLE) return;  // 没有这种语言的声音：不拿中文声音硬读
+            tts.setLanguage(loc);
+            tts.setSpeechRate(("ja".equals(lang) ? 0.95f : 0.9f) * speechRate);
             tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "shici");
         });
     }
@@ -313,6 +332,9 @@ public class MainActivity extends AppCompatActivity {
 
         public void copy(String text) { copyText(text); }
 
+        /** 系统 TTS 能读的语言："en,ja" / "en" / ""；还没初始化完返回 null */
+        public String ttsLangs() { return ttsLangs; }
+
         /** 局域网同步时给电脑看的名字：优先用系统设置里的“设备名称”（比如 Xiaomi 17 Pro），没有就用型号 */
         public String deviceName() {
             try {
@@ -338,6 +360,10 @@ public class MainActivity extends AppCompatActivity {
 
     /** 网页里的脚本调用的方法（window.ShiciAndroid） */
     public class JsBridge {
+        /** 设置里的「语速」：系统 TTS 和 MediaPlayer 播放都按这个倍速 */
+        @JavascriptInterface
+        public void setSpeechRate(float rate) { speechRate = Math.max(0.5f, Math.min(1.5f, rate)); }
+
         /** 主题变了：系统栏跟着换颜色。top = 顶栏颜色，bottom = 底部标签栏颜色 */
         @JavascriptInterface
         public void setBars(String top, String bottom, boolean dark) {
