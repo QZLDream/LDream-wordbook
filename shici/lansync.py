@@ -33,7 +33,9 @@ MAGIC = "xmcs-lan/1"
 ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"  # 去掉了容易看错的 0 O 1 I L
 BEACON_EVERY = 2.0
 ONLINE_FOR = 12.0       # 多久没收到广播就算对方已经离开
-SETTLE = 3.0            # 进度刚变（正在背）时等这么久再同步，攒一批
+SETTLE = 20.0           # 进度刚变（正在背）时，等停下来这么久再同步，攒一批
+MIN_GAP = 60.0          # 两次同步之间至少隔这么久（刚打开时的第一次同步不受限）
+MAX_WAIT = 180.0        # 一直在背、停不下来时，最多拖这么久也同步一次
 MAX_BODY = 64 * 1024 * 1024
 
 
@@ -261,8 +263,15 @@ class LanSync:
             return
         if not p["need_since"]:
             p["need_since"] = now
-        if now - self._fp_changed < SETTLE or now - p["fp_at"] < SETTLE:
-            return  # 有一边正在背，进度一直在变：等停下来几秒再同步，免得每背一个词就传一次
+        if not p["last_ok"]:  # 刚找到对方：马上同步一次（只等手上这个词背完）
+            if now - self._fp_changed < 3 or now - p["fp_at"] < 3:
+                return
+        else:  # 之后：攒一批再同步，不要每背几个词就传一次
+            if now - p["last_ok"] < MIN_GAP:
+                return
+            busy = now - self._fp_changed < SETTLE or now - p["fp_at"] < SETTLE
+            if busy and now - p["need_since"] < MAX_WAIT:
+                return
         if self.syncing or now - p["last_try"] < (20 if p["error"] else 4):
             return
         if self.id > pid and now - p["need_since"] < 8:

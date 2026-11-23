@@ -110,6 +110,7 @@ DEFAULTS = {
     "update_check": True,   # 启动时联网检查有没有新版本（只访问 GitHub 的发布页接口）
     "render": "auto",       # 画面渲染方式（Windows 桌面版）：auto 自动（N 卡 / A 卡用 OpenGL）/ d3d11 / opengl
     "gpu": "auto",          # 渲染用哪张显卡（Windows 双显卡）：auto 系统决定 / high 高性能 / low 省电
+    "lcd_text": False,      # 清晰文字（Windows 桌面版，实验）：让网页引擎用 ClearType 式的彩色抗锯齿画字
     "lan_sync": False,      # 局域网同步：同一个 Wi-Fi 下的手机和电脑自动合并进度
     "sync_code": "",        # 同步码：两台设备填一样的才会互相同步
 }
@@ -141,6 +142,9 @@ class Core:
         self.db = sqlite3.connect(self.dir / "user.db", check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        if "seq" not in {r[1] for r in self.db.execute("PRAGMA table_info(items)")}:
+            # 1.1.5：自己导入 / 添加的词记下先后顺序（导入的词表按文件里的顺序学）
+            self.db.execute("ALTER TABLE items ADD COLUMN seq INTEGER NOT NULL DEFAULT 0")
         self.settings = dict(DEFAULTS)
         for r in self.db.execute("SELECT k, v FROM settings"):
             if r["k"] in DEFAULTS:
@@ -284,8 +288,10 @@ class Core:
             "INSERT OR IGNORE INTO item_sources(item_id, source) SELECT id, ? FROM items WHERE lang=? AND term=?",
             [(source, lang, r["term"]) for r in rows],
         )
-        if prio == 0:  # 自己加的词即使原来在词书里，也提到前面学
-            self.db.executemany("UPDATE items SET prio=0 WHERE lang=? AND term=?", [(lang, r["term"]) for r in rows])
+        if prio == 0:  # 自己加的词即使原来在词书里，也提到前面学；并按导入 / 添加的先后排好（词表文件里的顺序）
+            base = self.db.execute("SELECT MAX(MAX(seq), MAX(id)) FROM items").fetchone()[0] or 0
+            self.db.executemany("UPDATE items SET prio=0, seq=? WHERE lang=? AND term=?",
+                                [(base + 1 + n, lang, r["term"]) for n, r in enumerate(rows)])
         return added, len(rows) - added
 
     # ------------------------------------------------------------ 队列
@@ -322,7 +328,9 @@ class Core:
                 return pair(c)
         # 3. 新词
         if counts["new"] > 0:
-            order = {"random": "i.shuffle", "alpha": "i.term COLLATE NOCASE"}.get(self.settings["order"], "i.rank")
+            # 常用词优先：词书里的词按常用度；自己导入 / 添加的词按导入的先后（词表文件里的顺序）
+            order = {"random": "i.shuffle", "alpha": "i.term COLLATE NOCASE"}.get(
+                self.settings["order"], "CASE WHEN i.prio=0 THEN (CASE WHEN i.seq>0 THEN i.seq ELSE i.id END) ELSE i.rank END")
             it = self.db.execute(
                 "SELECT i.* FROM items i LEFT JOIN cards c ON c.item_id=i.id "
                 f"WHERE c.item_id IS NULL AND i.suspended=0 ORDER BY i.prio, {order}, i.id LIMIT 1").fetchone()
@@ -603,6 +611,17 @@ class Core:
         return {"lang": lang, "entry": entry, "exists": exists,
                 "examples": self.dict.examples(lang, entry["word"]) if entry else [],
                 "suggest": self.dict.suggest(lang, term, 6) if len(term) >= 2 else []}
+
+    def api_peek(self, p: dict) -> dict:
+        """例句里长按一个词：查它是什么词（英语会顺带给出原形），给气泡显示。"""
+        lang = p.get("lang") or "en"
+        out = []
+        entries, span = self.dict.peek(lang, str(p.get("text") or "")[:400], int(p.get("index") or 0))
+        for e in entries:
+            have = self.db.execute("SELECT 1 FROM items WHERE lang=? AND term=? COLLATE NOCASE", (lang, e["word"])).fetchone()
+            out.append({"word": e["word"], "phonetic": e.get("phonetic") or "", "translation": "\n".join(e["translation"].split("\n")[:3]),
+                        "exists": have is not None})
+        return {"lang": lang, "entries": out, "span": span}
 
     def api_add_word(self, p: dict) -> dict:
         term = (p.get("term") or "").strip()

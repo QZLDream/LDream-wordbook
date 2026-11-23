@@ -38,7 +38,10 @@ export async function mount(root) {
   const q = (name, n, i) => { const el = h("span", { class: "num", text: "0" }); countUp(el, n); return h("div", { class: "rise", style: { "--i": i } }, h("span", { class: "label", text: name }), el); };
   // 名称里“ · 30 天”这类补充说明手机上放不下，单独包一层（phone.css 里隐藏）
   const strip = (name, text) => { const [main, more] = name.split(" · ");
-    return h("div", {}, h("span", { class: "label" }, main, more ? h("span", { class: "aux", text: " · " + more }) : null), h("span", { class: "num", text })); };
+    return h("div", {}, h("span", { class: "label" }, main, more ? h("span", { class: "aux", text: " · " + more }) : null),
+      typeof text === "string" ? h("span", { class: "num", text }) : h("span", { class: "num" }, text)); };
+  // 今日用时：单位用小一号的字、和数字连在一起不换行；满 100 分钟改成小时
+  const mins = (m) => !m ? "—" : m >= 100 ? [String(+(m / 60).toFixed(1)), h("small", { text: "小时" })] : [String(m), h("small", { text: "分" })];
   const streakEl = h("span", { text: "0" });
 
   root.append(h("div", { class: "home" },
@@ -51,7 +54,7 @@ export async function mount(root) {
       h("div", { class: "home-strip rise", style: { "--i": 8 } },
         h("div", { class: "rule", style: { "--d": "700ms" } }),
         strip("已学", learned.toLocaleString("en-US")), strip("已掌握", st.mature.toLocaleString("en-US")),
-        strip("保持率 · 30 天", pct(d.retention.rate)), strip("今日用时", d.today.minutes ? d.today.minutes + " 分" : "—")),
+        strip("保持率 · 30 天", pct(d.retention.rate)), strip("今日用时", mins(d.today.minutes))),
     ),
     h("div", { class: "home-dark" },
       h("div", { class: "slab" }, h("div", { class: "inner" },

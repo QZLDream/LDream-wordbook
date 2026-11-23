@@ -56,6 +56,83 @@ class Dictionary:
         out["translation"], out["auto"] = self._gloss(lang, row)
         return out
 
+    # ---- 例句里长按查词 ----
+    I_TO_U = dict(zip("いきぎしちにびみり", "うくぐすつぬぶむる"))
+
+    def peek(self, lang: str, text: str, index: int) -> tuple[list[dict], list[int]]:
+        """长按例句里的一个词：返回可能的词条（最多 3 个，最像的在前）。
+
+        英语：先按原样查（makes 本身也是词条），再查原形（makes → make）。
+        日语：句子里没有空格，从按住的位置往两边找词典里最长的词；动词、形容词变了形的，试着还原（食べ → 食べる、行き → 行く）。
+        """
+        con = self._db.get(lang)
+        if not con or not text:
+            return [], []
+        index = max(0, min(index, len(text) - 1))
+        words: list[str] = []
+        span: list[int] = []
+        with self._lock:
+            has = lambda w: con.execute("SELECT 1 FROM entries WHERE word=?", (w,)).fetchone() is not None  # noqa: E731
+            if lang == "en":
+                m = None
+                for m in re.finditer(r"[A-Za-z]+(?:[-'][A-Za-z]+)*", text):
+                    if m.start() <= index < m.end():
+                        break
+                else:
+                    m = None
+                if not m:
+                    return [], []
+                w = m.group(0)
+                span = [m.start(), m.end()]
+                for cand in (w, w.lower(), w.split("'")[0], w.split("'")[0].lower()):
+                    row = con.execute("SELECT word FROM entries WHERE word=? COLLATE NOCASE ORDER BY rank LIMIT 1", (cand,)).fetchone()
+                    if row:
+                        words.append(row[0])
+                        break
+                for (lem,) in con.execute("SELECT DISTINCT lemma FROM forms WHERE form=? LIMIT 3", (w.lower().split("'")[0],)):
+                    if lem not in words and has(lem):
+                        words.append(lem)
+            else:
+                found: list[tuple] = []  # (覆盖的字数, 是否靠猜词形, 起点离按住位置的距离, 词)
+                for start in range(index, max(-1, index - 8), -1):
+                    for end in range(min(len(text), start + 10), index, -1):
+                        s = text[start:end]
+                        if not s.strip() or re.fullmatch(r"[\W\d]+", s) or re.fullmatch(r"[\u3040-\u309f]", s):
+                            continue  # 单个平假名多半是助词，不单独查
+                        rest = text[end:]
+                        verbish = rest.startswith(("ま", "た", "て", "ない", "なかっ", "そう", "に行", "ながら"))
+                        cands: list[tuple[str, bool]] = []
+                        last = s[-1]
+                        if verbish and last in self.I_TO_U:
+                            cands.append((s[:-1] + self.I_TO_U[last], False))  # 行き(ます) → 行く
+                        if rest.startswith(("て", "た", "で", "だ")):  # て形、た形：歩い(て) → 歩く、待っ(て) → 待つ、読ん(で) → 読む
+                            cands += [(s[:-1] + e, False) for e in {"い": "くぐ", "っ": "うつる", "ん": "むぶぬ"}.get(last, "")]
+                        cands.append((s, False))
+                        if re.search(r"[\u3040-\u309f]$", s):
+                            if not s.endswith(("が", "を", "に", "は", "で", "と", "の", "へ", "も")):
+                                cands += [(s + "る", True), (s + "い", True)]
+                                if last in self.I_TO_U:
+                                    cands.append((s[:-1] + self.I_TO_U[last], True))
+                                if s.endswith(("かっ", "く", "けれ")):
+                                    cands.append((re.sub(r"(かっ|く|けれ)$", "い", s), True))
+                        elif verbish or rest.startswith(("し", "する", "さ")):
+                            cands += [(s + "る", True), (s + "する", True)]
+                        for c, guess in cands:
+                            if has(c):
+                                found.append((end - start, guess, index - start, c, start, end))
+                                break
+                for _, _, _, w, a, b in sorted(found, key=lambda x: (-x[0], x[1], x[2])):
+                    if not span:
+                        span = [a, b]
+                    if w not in words:
+                        words.append(w)
+        out = []
+        for w in words[:3]:
+            e = self.lookup(lang, w)
+            if e:
+                out.append(e)
+        return out, span
+
     # ---- 词根、近义词 / 反义词（只有英语） ----
     def _has(self, table: str) -> bool:
         con = self._db.get("en")

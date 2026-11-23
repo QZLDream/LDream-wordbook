@@ -5,15 +5,18 @@
 :root { --nav-h: 52px; --tab-h: 62px; --pad: 20px; --safe-b: env(safe-area-inset-bottom, 0px); }
 
 /* ---------- 顶栏 + 底部标签栏 ---------- */
-.nav { grid-template-columns: auto 1fr; padding: 0 var(--pad); }
-/* 左上角只放“WORD // ARCHIVE”，不放小猫 */
-.brand-cat, .nav-date { display: none; }
-.brand-sub { display: block; font-size: 11px; letter-spacing: .2em; color: var(--ink-2); }
+/* 顶栏：左边今日进度（数字 + 进度条），右边切换暗色的按钮；不放“WORD // ARCHIVE”。
+   按钮的图标比按钮本身小，往右挪出图标留白的那一截，让图标和右边缘的距离 = 数字和左边缘的距离 */
+.nav { grid-template-columns: 1fr; padding: 0 var(--pad); }
+.brand, .nav-date { display: none; }
+.nav-meta { justify-self: stretch; justify-content: space-between; }
+#themeBtn { margin-right: -11px; }  /* 按钮 36px、图标 18px，图标本身左右还有一点留白：这样图标看上去离右边缘约 20px，和左边的数字一样 */
 /* 点按时不要系统默认的蓝色块；改成按钮自己轻轻按下去 */
 * { -webkit-tap-highlight-color: transparent; }
 .btn:active, .chip:active, .book-pick:active, .rate:active, .icon-btn:active { transform: scale(.97); transition: transform .12s ease-out; }
 .nav-meta { gap: 12px; }
-.nav-prog i { width: 64px; }
+.nav-prog { gap: 12px; font-size: 12px; }
+.nav-prog i { width: 96px; }
 .tabs { position: fixed; left: 0; right: 0; bottom: 0; height: calc(var(--tab-h) + var(--safe-b)); padding-bottom: var(--safe-b); gap: 0;
   border-top: 1px solid var(--line); background: color-mix(in srgb, var(--paper) 96%, transparent); }
 [data-palette="silver"] .tabs { background: color-mix(in srgb, var(--card) 96%, transparent); }
@@ -61,7 +64,8 @@ kbd { display: none !important; }
 .home-strip .label .aux { display: none; }
 .home-strip div { gap: 7px; min-width: 0; }
 .home-strip .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.home-strip .num { font-size: 19px; }
+.home-strip .num { font-size: 19px; white-space: nowrap; }
+.home-strip .num small { font-size: .62em; margin-left: 2px; letter-spacing: 0; }
 [data-palette="silver"] .home-strip { border: 0; border-radius: 22px; box-shadow: var(--shadow); padding: 18px 20px; }
 /* 连续天数 + 遗忘曲线 */
 /* 卡片往上拉长，填满按钮下面的空白：卡片和按钮的间距 = 数字和按钮的间距（--hgap）；内容在卡片上半部分居中，四个数字贴底 */

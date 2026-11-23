@@ -216,22 +216,48 @@ function confirmRender() {
   timer = setInterval(() => { left -= 1; count.textContent = String(left); if (left <= 0) revert(); }, 1000);
 }
 
-// 局域网同步：从别的设备合并进来新进度时，首页 / 统计页重新画一下，并轻轻提示一声
-let syncSeen = Math.floor(Date.now() / 1000) - 1;
+// 同步后悄悄刷新当前页：新页面先在看不见的地方画好、不播入场动画，再一下子换掉旧的，不闪、不重播动画
+async function quietRefresh() {
+  const [, name = "home", query = ""] = location.hash.match(/^#\/(\w+)\??(.*)$/) || [];
+  if (!current || pending || !routes[name]) return;
+  const my = seq, root = document.documentElement, old = current;
+  const scroller = old.el.querySelector(".scroll"), top = scroller ? scroller.scrollTop : 0;
+  root.classList.add("quiet");
+  const el = h("section", { class: "page", style: { visibility: "hidden" } });
+  $("#view").append(el);
+  try {
+    const mod = await routes[name]();
+    const cleanup = await mod.mount(el, Object.fromEntries(new URLSearchParams(query)));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    if (my !== seq || current !== old) { cleanup?.(); el.remove(); return; }
+    old.cleanup?.(); old.el.remove();
+    el.style.visibility = "";
+    const sc = el.querySelector(".scroll");
+    if (sc) sc.scrollTop = top;
+    current = { el, cleanup };
+  } catch { el.remove(); }
+  finally { setTimeout(() => root.classList.remove("quiet"), 60); }
+}
+
+// 局域网同步：从别的设备合并进来新进度时，首页 / 统计页悄悄刷新数字；提示只在第一次同步时出现
+let syncSeen = Math.floor(Date.now() / 1000) - 1, syncToasted = 0;
 async function watchSync() {
   if (app.settings.lan_sync && !document.hidden) {
     try {
       const s = await api("sync_status");
       if (s.merged_at > syncSeen && s.merged_changes) {
         const name = (location.hash.match(/^#\/(\w+)/) || [])[1] || "home";
-        if ((name === "home" || name === "stats") && !layerOpen()) route();
+        if ((name === "home" || name === "stats") && !layerOpen()) quietRefresh();
         refreshNav();
-        if (name !== "review") toast(`已和「${s.merged_from}」同步了学习进度`);
+        if (name !== "review" && Date.now() - syncToasted > 30 * 60 * 1000) {
+          syncToasted = Date.now();
+          toast(`已和「${s.merged_from}」同步了学习进度`);
+        }
       }
       syncSeen = Math.max(syncSeen, s.merged_at || 0);
     } catch { /* 下次再看 */ }
   }
-  setTimeout(watchSync, 4000);
+  setTimeout(watchSync, 5000);
 }
 
 async function boot() {

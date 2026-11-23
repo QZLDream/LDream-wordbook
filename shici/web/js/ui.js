@@ -36,7 +36,9 @@ export const icons = {
 };
 export const icon = (name, attrs = {}) => h("span", { class: "ico", html: icons[name], style: { display: "inline-grid" }, ...attrs });
 
-export const reduced = () => document.documentElement.dataset.motion === "reduced" || matchMedia("(prefers-reduced-motion: reduce)").matches;
+// quiet：同步后悄悄刷新页面时临时打开，这期间不播入场动画
+export const reduced = () => document.documentElement.dataset.motion === "reduced" || document.documentElement.classList.contains("quiet") ||
+  matchMedia("(prefers-reduced-motion: reduce)").matches;
 export const ms = (n) => (reduced() ? 0 : n);
 export const wait = (n) => new Promise((r) => setTimeout(r, ms(n)));
 export const EASE = "cubic-bezier(.22,1,.36,1)";
@@ -231,9 +233,143 @@ export function exampleEl(ex, term, lang = "en") {
     setTimeout(() => say.classList.remove("playing"), waited ? 0 : ms(1400));
   });
   p.append(" ", say);
+  bindPeek(p, ex.en, lang);
   // 机器翻译的译文后面标一个小小的「机翻」
   const tr = ex.zh ? h("p", { lang: /[\u3040-\u30ff]/.test(ex.zh) ? "ja" : null }, ex.zh, ex.mt ? h("span", { class: "mt-tag", title: "这句译文是机器翻译的，仅供参考", text: "机翻" }) : null) : null;
   return h("div", { class: "ex" }, p, tr);
+}
+
+// ---- 例句里长按一个词（电脑上也可以双击）：弹出小气泡，显示读音、释义，可以发音、加入词库 ----
+let peekClose = null;
+function textIndexAt(p, x, y) {
+  const r = document.caretRangeFromPoint?.(x, y);
+  if (!r || r.startContainer.nodeType !== 3 || !p.contains(r.startContainer) || r.startContainer.parentElement.closest(".ex-say")) return -1;
+  // 按到字的右半边时 caret 在字后面：用按住的那个字本身
+  let idx = 0, n;
+  const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+  while ((n = walker.nextNode())) {
+    if (n === r.startContainer) return idx + r.startOffset;
+    idx += n.data.length;
+  }
+  return -1;
+}
+function rangeOf(p, a, b) {
+  const r = document.createRange();
+  let idx = 0, n, set = 0;
+  const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+  while ((n = walker.nextNode()) && set < 2) {
+    const len = n.data.length;
+    if (!set && a < idx + len) { r.setStart(n, a - idx); set = 1; }
+    if (set === 1 && b <= idx + len) { r.setEnd(n, b - idx); set = 2; }
+    idx += len;
+  }
+  return set === 2 ? r : null;
+}
+function bindPeek(p, text, lang) {
+  let timer = 0, sx = 0, sy = 0, fired = false;
+  const cancel = () => clearTimeout(timer);
+  p.classList.add("peekable");
+  p.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.target.closest(".ex-say")) return;
+    sx = e.clientX; sy = e.clientY; fired = false;
+    cancel();
+    timer = setTimeout(() => { fired = true; showPeek(p, text, lang, sx, sy); }, 430);
+  });
+  p.addEventListener("pointermove", (e) => { if (Math.hypot(e.clientX - sx, e.clientY - sy) > 9) cancel(); });
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) p.addEventListener(ev, cancel);
+  p.addEventListener("click", (e) => { if (fired) { e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
+  p.addEventListener("contextmenu", (e) => e.preventDefault());
+  p.addEventListener("dblclick", (e) => {
+    if (e.target.closest(".ex-say")) return;
+    getSelection()?.removeAllRanges();
+    showPeek(p, text, lang, e.clientX, e.clientY);
+  });
+}
+async function showPeek(p, text, lang, x, y) {
+  let at = textIndexAt(p, x, y);
+  if (at < 0) return;
+  // caret 可能落在字的后面；落在空格、标点上时往前挪一个字
+  if (at >= text.length || /[\s.,!?;:"'。、！？「」（）]/.test(text[at] || "")) at = Math.max(0, at - 1);
+  const { api } = await import("./api.js");
+  let r;
+  try { r = await api("peek", { lang, text, index: at }); } catch { return; }
+  if (!r.entries.length) { toast("词典里没有找到这个词"); return; }
+  peekClose?.();
+  const { play } = await import("./sfx.js");
+  play("tap");  // 开着震动反馈时也会震一下
+  // 高亮按住的词
+  const marks = [];
+  const range = r.span?.length ? rangeOf(p, r.span[0], r.span[1]) : null;
+  const rects = range ? [...range.getClientRects()] : [{ left: x - 10, top: y - 12, width: 20, height: 24, right: x + 10, bottom: y + 12 }];
+  for (const rc of rects) {
+    marks.push(document.body.appendChild(h("div", { class: "peek-mark", style: {
+      left: rc.left - 3 + "px", top: rc.top - 1 + "px", width: rc.width + 6 + "px", height: rc.height + 2 + "px" } })));
+  }
+  const box = h("div", { class: "peek", role: "dialog" });
+  let cur = 0;
+  const paint = () => {
+    const e = r.entries[cur];
+    const say = h("button", { class: "peek-say", type: "button", "aria-label": "发音", html: icons.speaker, onclick: async () => {
+      const { speak } = await import("./api.js");
+      speak(e.word, lang);
+    } });
+    const add = h("button", { class: "btn sm" + (e.exists ? " ghost" : ""), type: "button", disabled: e.exists ? "" : null,
+      text: e.exists ? "已在词库" : "加入词库", onclick: async () => {
+        try {
+          await api("add_word", { term: e.word, lang });
+          e.exists = true; paint();
+          toast(`已把「${e.word}」加入词库`);
+          document.dispatchEvent(new CustomEvent("shici-words"));
+        } catch (err) { toast(err.message || String(err)); }
+      } });
+    fill(box,
+      r.entries.length > 1 ? h("div", { class: "peek-chips" }, r.entries.map((x, i) =>
+        h("button", { type: "button", class: "peek-chip" + (i === cur ? " on" : ""), text: x.word, onclick: () => { cur = i; paint(); } }))) : null,
+      h("div", { class: "peek-head" }, h("b", { class: "peek-word", lang: lang === "ja" ? "ja" : null, text: e.word }),
+        e.phonetic ? h("span", { class: "peek-ph", lang: lang === "ja" ? "ja" : null, text: lang === "ja" ? e.phonetic : `/${e.phonetic}/` }) : null, say),
+      defBlock(e.translation, 3, { class: "peek-def" }),
+      h("div", { class: "peek-foot" }, add));
+  };
+  paint();
+  box.style.visibility = "hidden";
+  document.body.append(box);
+  const place = () => {
+    const rc = rects[0], W = innerWidth, H = innerHeight;
+    const bw = Math.min(340, W - 24);
+    box.style.width = bw + "px";
+    const bh = box.offsetHeight;
+    const left = Math.max(12, Math.min(W - bw - 12, rc.left + rc.width / 2 - bw / 2));
+    const above = rc.top - bh - 12 > 8;
+    const top = above ? rc.top - bh - 12 : Math.min(H - bh - 8, rc.bottom + 12);
+    box.style.left = left + "px";
+    box.style.top = top + "px";
+    box.style.setProperty("--ax", Math.max(18, Math.min(bw - 18, rc.left + rc.width / 2 - left)) + "px");
+    box.classList.toggle("below", !above);
+  };
+  place();
+  box.style.visibility = "";
+  const close = () => {
+    if (peekClose !== close) return;
+    peekClose = null;
+    layers.splice(layers.indexOf(close), 1);
+    document.removeEventListener("pointerdown", outside, true);
+    document.removeEventListener("scroll", close, true);
+    removeEventListener("resize", close);
+    removeEventListener("keydown", esc, true);
+    box.classList.add("out");
+    marks.forEach((m) => m.remove());
+    setTimeout(() => box.remove(), reduced() ? 0 : 160);
+  };
+  const outside = (e) => { if (!box.contains(e.target)) close(); };
+  const esc = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+  peekClose = close;
+  layers.push(close);
+  setTimeout(() => {
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("scroll", close, true);
+    addEventListener("resize", close);
+    addEventListener("keydown", esc, true);
+  }, 0);
 }
 
 export function fmtDue(ts, now) {

@@ -210,6 +210,10 @@ def run(core: Core, server: Server) -> int:
         core.render_trial = True
     store.setValue("display_pending", eff)
     apply_render(eff.split("|")[0])
+    if core.settings.get("lcd_text"):
+        # 清晰文字：Qt 的网页引擎默认只用灰度抗锯齿画字，在 100% 缩放的普通屏幕上小字容易发虚、有锯齿；
+        # 打开后用 ClearType 那样的彩色（次像素）抗锯齿
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "") + " --enable-lcd-text").strip()
     apply_gpu(gpu, store)
     store.sync()
 

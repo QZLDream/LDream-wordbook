@@ -426,7 +426,8 @@ def test_every_exam_word_has_an_example(core):
     total = d.execute("SELECT COUNT(DISTINCT word) FROM book_words").fetchone()[0]
     missing = d.execute("SELECT COUNT(DISTINCT w.word) FROM book_words w WHERE NOT EXISTS"
                         "(SELECT 1 FROM examples e WHERE e.word=w.word)").fetchone()[0]
-    assert total > 14000 and missing <= 5, (total, missing)
+    # 1.1.3 起去掉了敏感例句：communism、suicide、Tibet 这类词以及只有敏感例句的少数生僻词宁可没有例句
+    assert total > 14000 and missing <= 40, (total, missing)
     ex = core.dict.examples("en", "acrimony")                           # 生僻词：自编例句，带中文译文
     assert ex and "acrimony" in ex[0]["en"] and ex[0]["zh"]
     assert core.dict.examples("en", "T-shirt")                          # 带连字符的词

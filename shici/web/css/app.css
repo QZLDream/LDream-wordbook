@@ -139,6 +139,35 @@ svg { display: block; }
 /* ---------- 页面容器与切换 ---------- */
 .view { position: fixed; inset: var(--nav-h) 0 0 0; outline: 0; }
 .page { position: absolute; inset: 0; transition: opacity .28s var(--ease), transform .28s var(--ease); }
+/* 例句里长按查词的气泡 */
+.peekable { -webkit-touch-callout: none; }
+@media (pointer: coarse) { .peekable { -webkit-user-select: none; user-select: none; } }
+.peek-mark { position: fixed; z-index: 80; border-radius: 4px; background: var(--accent-soft); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); pointer-events: none; }
+.peek { position: fixed; z-index: 90; padding: 14px 16px 14px; background: var(--card); color: var(--ink); border: 1px solid var(--line-2);
+  border-radius: 14px; box-shadow: var(--shadow), 0 10px 30px -12px rgba(0, 0, 0, .35); animation: peek-in .18s var(--ease) both; transform-origin: var(--ax) bottom; }
+.peek.below { transform-origin: var(--ax) top; }
+.peek::after { content: ""; position: absolute; left: var(--ax); bottom: -6px; width: 10px; height: 10px; margin-left: -5px; background: var(--card);
+  border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); transform: rotate(45deg); }
+.peek.below::after { bottom: auto; top: -6px; transform: rotate(-135deg); }
+.peek.out { animation: peek-out .16s var(--ease) both; }
+@keyframes peek-in { from { opacity: 0; transform: translateY(4px) scale(.96); } }
+@keyframes peek-out { to { opacity: 0; transform: translateY(4px) scale(.97); } }
+.peek-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.peek-chip { font: 500 13px/1 var(--sans); padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line-2); background: transparent; color: var(--ink-2); cursor: pointer; }
+.peek-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.peek-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.peek-word { font: 700 22px/1.2 var(--serif); }
+.peek-word[lang="ja"] { font-family: var(--serif-ja); }
+.peek-ph { font: 400 14px/1.2 var(--sans); color: var(--mute); }
+.peek-say { margin-left: auto; align-self: center; width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--paper-2); color: var(--ink-2); cursor: pointer; }
+.peek-say svg { width: 16px; height: 16px; }
+.peek .peek-def { margin-top: 10px; gap: 4px; min-height: 0; max-height: none; }
+.peek .peek-def .def { animation: none; font-size: 14.5px; line-height: 1.5; grid-template-columns: 40px 1fr; gap: 6px; }
+.peek .peek-def .def > span:last-child { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.peek .peek-def .pos { line-height: 1.9; font-size: 11px; }
+.peek-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
+.peek-foot .btn[disabled] { opacity: .6; cursor: default; }
+.quiet *, .quiet *::before, .quiet *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; }
 .page.leaving { opacity: 0; transform: translate3d(0, -10px, 0); pointer-events: none; }
 .page-pad { padding: clamp(28px, 4.5vh, 52px) var(--pad) 40px; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: clamp(20px, 3vh, 32px); }
@@ -707,6 +736,8 @@ input, textarea, [contenteditable], .keybox, .update-notes, .path,
 
 /* ---------- 朱橙主题：所有选择类控件都用方框（小圆角），不用胶囊形 ---------- */
 [data-palette="vermilion"] .seg { border-radius: 4px; }
+[data-palette="vermilion"] .peek { border-radius: 4px; }
+[data-palette="vermilion"] .peek-chip, [data-palette="vermilion"] .peek-mark { border-radius: 3px; }
 [data-palette="vermilion"] .seg button { border-radius: 3px; }
 [data-palette="vermilion"] .search .field, [data-palette="vermilion"] .select { border-radius: 4px; }
 [data-palette="vermilion"] .chip, [data-palette="vermilion"] .book .plan, [data-palette="vermilion"] .pick-go { border-radius: 4px; }
